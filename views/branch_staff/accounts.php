@@ -27,8 +27,7 @@
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Toplam Cari</div>
-                    <div class="stat-value" style="font-size:1.5rem;">24</div>
-                    <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Aktif hesap</div>
+                    <div class="stat-value" style="font-size:1.5rem;">—</div>\n                    <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Aktif hesap</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
@@ -183,16 +182,36 @@
 </style>
 
 <script>
-    var accounts = [
-        { id: 1, name: 'ABC Lojistik Ltd. Şti.', type: 'kurumsal', contact: 'Mehmet Kara', phone: '0212 111 22 33', debt: 3200, limit: 5000, lastTx: '23.02.2026' },
-        { id: 2, name: 'Yıldız Tekstil A.Ş.', type: 'kurumsal', contact: 'Ayşe Yıldız', phone: '0216 222 33 44', debt: 5100, limit: 5000, lastTx: '22.02.2026' }, // over
-        { id: 3, name: 'Demir İnşaat', type: 'kurumsal', contact: 'Hasan Demir', phone: '0542 333 44 55', debt: 1400, limit: 3000, lastTx: '21.02.2026' },
-        { id: 4, name: 'Kemal Öztürk (Bireysel)', type: 'bireysel', contact: 'Kemal Öztürk', phone: '0534 444 55 66', debt: 950, limit: 2000, lastTx: '20.02.2026' },
-        { id: 5, name: 'Global Optik Ltd.', type: 'kurumsal', contact: 'Caner Güneş', phone: '0232 555 66 77', debt: 4200, limit: 5000, lastTx: '19.02.2026' }, // warn
-        { id: 6, name: 'Anadolu Tarım Koop.', type: 'kurumsal', contact: 'Bülent Arslan', phone: '0362 666 77 88', debt: 2800, limit: 4000, lastTx: '18.02.2026' },
-        { id: 7, name: 'Elif Şahin (Bireysel)', type: 'bireysel', contact: 'Elif Şahin', phone: '0505 777 88 99', debt: 600, limit: 1500, lastTx: '17.02.2026' },
-        { id: 8, name: 'Karadeniz Taşıma A.Ş.', type: 'kurumsal', contact: 'Tarık Bulut', phone: '0462 888 99 00', debt: 6800, limit: 6000, lastTx: '16.02.2026' }, // over
-    ];
+    var accounts = [];
+
+    function loadAccounts() {
+        fetch('api.php?action=accounts.list', {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+        })
+        .then(r => r.json())
+        .then(function(res) {
+            if (!res.success) { showToast('Hata: '+(res.error||'?'), 'error'); return; }
+            var kpi = res.kpi || {};
+            document.getElementById('kpiTotal').textContent   = kpi.total || 0;
+            document.getElementById('kpiDebt').textContent    = '₺'+(parseFloat(kpi.total_debt)||0).toLocaleString('tr-TR',{minimumFractionDigits:0});
+            document.getElementById('kpiMonthly').textContent = '₺'+(parseFloat(kpi.monthly_paid)||0).toLocaleString('tr-TR',{minimumFractionDigits:0});
+            document.getElementById('kpiOver').textContent    = kpi.over_limit || 0;
+            accounts = (res.accounts || []).map(function(a) {
+                return {
+                    id:      a.id,
+                    name:    a.name,
+                    type:    a.type === 'CORPORATE' ? 'kurumsal' : 'bireysel',
+                    contact: a.contact || '—',
+                    phone:   a.phone,
+                    debt:    parseFloat(a.debt)||0,
+                    limit:   parseFloat(a.limit)||1,
+                    lastTx:  a.lastTx || '—',
+                };
+            });
+            filterAccounts();
+        })
+        .catch(function() { showToast('Bağlantı hatası!', 'error'); });
+    }
 
     function getStatus(debt, limit) {
         var ratio = debt / limit;
@@ -313,5 +332,5 @@
         setTimeout(function () { t.style.opacity = '0'; setTimeout(function () { t.remove(); }, 300); }, 3000);
     }
 
-    renderAccounts(accounts);
+    loadAccounts();
 </script>

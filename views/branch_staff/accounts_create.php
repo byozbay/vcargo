@@ -370,8 +370,44 @@
     /* ── Submit ── */
     function submitAccount(e) {
         e.preventDefault();
-        showToast('✓ Cari hesap başarıyla oluşturuldu!', 'success');
-        /* TODO: AJAX / form POST */
+        var btn = document.querySelector('[type=submit]');
+        btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+        var payload = {
+            type:         currentType,
+            company_name: document.getElementById('companyName').value,
+            full_name:    document.getElementById('fullName').value,
+            contact:      document.getElementById('contactPerson').value,
+            phone:        document.getElementById('phone').value,
+            email:        document.getElementById('email').value,
+            address:      document.getElementById('address').value,
+            tax_no:       document.getElementById('taxNo').value,
+            tax_office:   document.getElementById('taxOffice').value,
+            tc_no:        document.getElementById('tcNo').value,
+            credit_limit: parseFloat(document.getElementById('creditLimit').value) || 0,
+            payment_days: parseInt(document.getElementById('paymentDays').value) || 30,
+            notes:        document.getElementById('notes').value,
+        };
+        fetch('api.php?action=accounts.create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(function(res) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i> Cari Hesabı Oluştur';
+            if (res.success) {
+                showToast('✓ Cari hesap oluşturuldu!', 'success');
+                setTimeout(function() { window.location.href = '?page=accounts'; }, 1200);
+            } else {
+                showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i> Cari Hesabı Oluştur';
+            showToast('Sunucu hatası!', 'error');
+        });
     }
 
     function resetForm() {
