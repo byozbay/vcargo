@@ -40,12 +40,40 @@ try {
         'shipments.list' => (function () use ($branchId) {
             $m      = new ShipmentModel();
             $status = $_GET['status'] ?? '';
-            $search = $_GET['search'] ?? '';
+            $search = trim($_GET['search'] ?? '');
             $page   = max(1, (int) ($_GET['page'] ?? 1));
             $limit  = 20;
             $offset = ($page - 1) * $limit;
             $role   = $_SESSION['user_role'] ?? '';
             $bid    = ($role === 'admin') ? 0 : $branchId;
+
+            // When barcode/tracking search — enrich with storage info for delivery.php
+            if ($search) {
+                $base   = new BaseModel();
+                $bWhere = $bid ? 'AND s.branch_id = ' . (int)$bid : '';
+                $rows   = $base->query(
+                    "SELECT s.shipment_id, s.tracking_no, s.sender_name, s.sender_phone,
+                            s.receiver_name, s.receiver_phone, s.status, s.payment_type, s.weight,
+                            s.total_fee, s.piece_count,
+                            COALESCE(oc.name,'') AS origin_city,
+                            COALESCE(dc.name,'') AS dest_city,
+                            b.free_storage_hours AS free_hours,
+                            b.storage_hourly_rate AS hourly_rate,
+                            CASE WHEN sr.storage_id IS NOT NULL
+                                 THEN GREATEST(0, TIMESTAMPDIFF(MINUTE, sr.checked_in_at, NOW()) / 60)
+                                 ELSE 0 END AS storage_hours
+                     FROM shipments s
+                     LEFT JOIN cities oc ON oc.city_id = s.origin_city_id
+                     LEFT JOIN cities dc ON dc.city_id = s.destination_city_id
+                     LEFT JOIN branches b ON b.branch_id = s.branch_id
+                     LEFT JOIN storage_records sr ON sr.shipment_id = s.shipment_id AND sr.status = 'active'
+                     WHERE s.is_active = 1 {$bWhere}
+                       AND (s.tracking_no LIKE ? OR s.receiver_name LIKE ? OR s.sender_name LIKE ?)
+                     ORDER BY s.created_at DESC LIMIT 5",
+                    ["%{$search}%", "%{$search}%", "%{$search}%"]
+                );
+                return ['data' => $rows, 'total' => count($rows), 'page' => 1];
+            }
 
             return [
                 'data'  => $m->getList($bid, $status, $search, $limit, $offset),
