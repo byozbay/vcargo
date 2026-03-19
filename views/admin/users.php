@@ -4,7 +4,7 @@ $todayDate = date('d.m.Y');
 $base  = new BaseModel();
 $users = $base->query(
     "SELECT u.user_id AS id,
-            CONCAT(u.first_name,' ',u.last_name) AS name,
+            u.full_name AS name,
             u.email, u.role, u.phone,
             COALESCE(b.name,'Sistem') AS branch,
             COALESCE(c.name,'—') AS city,

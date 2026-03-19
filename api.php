@@ -124,14 +124,6 @@ try {
             return $m->getDashboardStats($role === 'admin' ? 0 : $branchId);
         })(),
 
-        // ── TRIPS ────────────────────────────────────────────
-        'trips.list' => (function () use ($branchId) {
-            $m      = new TripModel();
-            $status = $_GET['status'] ?? '';
-            $role   = $_SESSION['user_role'] ?? '';
-            return $m->getList($role === 'admin' ? 0 : $branchId, $status);
-        })(),
-
         'trips.create' => (function () use ($input, $branchId, $userId) {
             $m = new TripModel();
             $input['branch_id']  = $branchId;
@@ -139,15 +131,6 @@ try {
             $id = $m->createTrip($input);
             AuditModel::log('trip.create', 'trip', $id);
             return ['success' => true, 'trip_id' => $id];
-        })(),
-
-        // ── STORAGE ──────────────────────────────────────────
-        'storage.list' => (function () use ($branchId) {
-            $m      = new StorageModel();
-            $type   = $_GET['type'] ?? '';
-            $search = $_GET['search'] ?? '';
-            $role   = $_SESSION['user_role'] ?? '';
-            return $m->getActive($role === 'admin' ? 0 : $branchId, $type, $search);
         })(),
 
         'storage.create' => (function () use ($input, $branchId, $userId) {
@@ -549,96 +532,6 @@ try {
             return ['success'=>true,'records'=>$rows,'kpi'=>[
                 'total'=>$total,'paid'=>$paid,'pending_fee'=>round($pending,2),'today_delivered'=>(int)$today
             ]];
-        })(),
-
-        /**
-         * accounts.list — List current accounts for branch
-         */
-        'accounts.list' => (function () use ($input, $branchId) {
-            $base = new BaseModel();
-            $rows = $base->query(
-                "SELECT a.account_id AS id,
-                        COALESCE(a.company_name, CONCAT(a.first_name,' ',a.last_name)) AS name,
-                        a.account_type AS type,
-                        a.contact_person AS contact,
-                        a.phone,
-                        a.balance AS debt,
-                        a.credit_limit AS `limit`,
-                        a.is_active,
-                        DATE_FORMAT(a.updated_at,'%d.%m.%Y') AS lastTx
-                 FROM accounts a
-                 WHERE a.branch_id = ? AND a.is_active = 1
-                 ORDER BY a.balance DESC",
-                [$branchId]
-            );
-            /* KPI */
-            $kpi = $base->query(
-                "SELECT COUNT(*) AS total,
-                        COALESCE(SUM(balance),0) AS total_debt,
-                        SUM(balance > credit_limit) AS over_limit
-                 FROM accounts WHERE branch_id=? AND is_active=1",
-                [$branchId]
-            )[0] ?? [];
-            $monthlyPaid = $base->query(
-                "SELECT COALESCE(SUM(amount),0) AS v FROM transactions
-                 WHERE type='IN' AND method='ACCOUNT' AND branch_id=?
-                   AND MONTH(created_at)=MONTH(NOW()) AND YEAR(created_at)=YEAR(NOW())
-                   AND is_active=1",
-                [$branchId]
-            )[0]['v'] ?? 0;
-            return ['success'=>true,'accounts'=>$rows,'kpi'=>[
-                'total'        => (int)($kpi['total']      ?? 0),
-                'total_debt'   => (float)($kpi['total_debt'] ?? 0),
-                'over_limit'   => (int)($kpi['over_limit']  ?? 0),
-                'monthly_paid' => (float)$monthlyPaid,
-            ]];
-        })(),
-
-        /**
-         * accounts.create — Create a new current account
-         */
-        'accounts.create' => (function () use ($input, $branchId, $userId) {
-            $base = new BaseModel();
-            $type     = $input['type'] ?? 'CORPORATE';
-            $name     = trim($input['company_name'] ?? $input['full_name'] ?? '');
-            $contact  = trim($input['contact']  ?? '');
-            $phone    = trim($input['phone']    ?? '');
-            $email    = trim($input['email']    ?? '');
-            $address  = trim($input['address']  ?? '');
-            $taxNo    = trim($input['tax_no']   ?? '');
-            $taxOff   = trim($input['tax_office']?? '');
-            $tcNo     = trim($input['tc_no']    ?? '');
-            $limit    = (float)($input['credit_limit']  ?? 0);
-            $days     = (int)($input['payment_days']    ?? 30);
-            $notes    = trim($input['notes']    ?? '');
-            if (!$name || !$phone) throw new \Exception('Ad ve telefon zorunludur.');
-
-            $db = new Database();
-            $pdo = $db->connect();
-
-            // Check duplicate phone
-            $dup = (new BaseModel())->query(
-                "SELECT account_id FROM accounts WHERE phone=? AND branch_id=? AND is_active=1 LIMIT 1",
-                [$phone, $branchId]
-            );
-            if ($dup) throw new \Exception('Bu telefon numarasıyla kayıtlı hesap zaten var.');
-
-            $now = date('Y-m-d H:i:s');
-            $stmt = $pdo->prepare(
-                "INSERT INTO accounts (branch_id, account_type, company_name, first_name, last_name,
-                    contact_person, phone, email, address, tax_number, tax_office, id_number,
-                    credit_limit, payment_days, notes, balance, is_active, created_by, created_at, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,?,?,?)"
-            );
-            $isCorp    = in_array(strtoupper($type), ['CORPORATE','kurumsal']);
-            $typeConst = $isCorp ? 'CORPORATE' : 'INDIVIDUAL';
-            $compNm    = $isCorp ? $name : '';
-            $fn        = $isCorp ? '' : ($input['first_name'] ?? $name);
-            $ln        = $isCorp ? '' : ($input['last_name']  ?? '');
-            $stmt->execute([$branchId,$typeConst,$compNm,$fn,$ln,$contact,$phone,$email,$address,$taxNo,$taxOff,$tcNo,$limit,$days,$notes,$userId,$now,$now]);
-            $newId = $pdo->lastInsertId();
-            AuditModel::log('accounts.create','account',$newId,null,['name'=>$name,'branch_id'=>$branchId]);
-            return ['success'=>true,'account_id'=>$newId];
         })(),
 
         /**
