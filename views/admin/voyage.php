@@ -25,21 +25,21 @@
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Bugünkü Seferler</div>
-                    <div class="stat-value" style="font-size:1.5rem;">8</div>
+                    <div class="stat-value" style="font-size:1.5rem;" id="kpiTotal">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Toplam planlı</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Aktif / Yolda</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#1b84ff;">3</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#1b84ff;" id="kpiActive">—</div>
                     <div style="font-size:.73rem;color:#1b84ff;margin-top:2px;">Sefer devam ediyor</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Toplam Kargo</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#0e8045;">67</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#0e8045;" id="kpiCargo">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Bu gün sevk edilen</div>
                 </div>
             </div>
@@ -102,7 +102,7 @@
             <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                 <div>
                     <div class="section-label">Sefer Listesi</div>
-                    <div class="section-sub" id="voyageCountLabel">8 sefer</div>
+                    <div class="section-sub" id="voyageCountLabel">Yükleniyor...</div>
                 </div>
             </div>
 
@@ -182,16 +182,29 @@
 </style>
 
 <script>
-    var voyages = [
-        { plate: '34 ABC 001', company: 'metro', companyName: 'Metro Turizm', route: 'İstanbul → Ankara', driver: 'Ahmet Kurt', time: '06:00', cargo: 14, gross: 1190, commRate: 15, status: 'tamamlandi' },
-        { plate: '35 XY 002', company: 'pamukkale', companyName: 'Pamukkale', route: 'İstanbul → İzmir', driver: 'Mehmet Acar', time: '08:30', cargo: 9, gross: 960, commRate: 15, status: 'tamamlandi' },
-        { plate: '06 KA 777', company: 'uludag', companyName: 'Uludağ Turizm', route: 'İstanbul → Bursa', driver: 'Hasan Yıldız', time: '10:00', cargo: 5, gross: 440, commRate: 12, status: 'yolda' },
-        { plate: '34 MT 333', company: 'metro', companyName: 'Metro Turizm', route: 'İstanbul → Sivas → Erzurum', driver: 'Tarık Şahin', time: '11:30', cargo: 17, gross: 1530, commRate: 15, status: 'yolda' },
-        { plate: '01 AD 055', company: 'kamil', companyName: 'Kamil Koç', route: 'İstanbul → Adana', driver: 'Barış Ak', time: '13:00', cargo: 8, gross: 760, commRate: 13, status: 'yolda' },
-        { plate: '35 PK 100', company: 'pamukkale', companyName: 'Pamukkale', route: 'İstanbul → Denizli → Muğla', driver: 'Caner Demir', time: '15:00', cargo: 6, gross: 540, commRate: 15, status: 'bekliyor' },
-        { plate: '34 MTT 44', company: 'metro', companyName: 'Metro Turizm', route: 'İstanbul → Konya → Adana', driver: 'Osman Güler', time: '17:30', cargo: 5, gross: 475, commRate: 15, status: 'bekliyor' },
-        { plate: '34 KK 987', company: 'kamil', companyName: 'Kamil Koç', route: 'İstanbul → Gaziantep', driver: 'Volkan Ateş', time: '20:00', cargo: 3, gross: 285, commRate: 13, status: 'bekliyor' },
-    ];
+    var voyages = [];
+
+    function loadVoyages() {
+        var date = document.getElementById('filterDate').value;
+        fetch('api.php?action=trips.list', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({date: date, all_branches: true})
+        })
+        .then(r => r.json())
+        .then(function(res) {
+            if (!res.success) { showToast('Hata: '+(res.error||'?'), 'error'); return; }
+            voyages = (res.trips||[]).map(function(t) {
+                return { trip_id:t.trip_id, plate:t.plate_no, company_id:String(t.company_id||''), companyName:t.company_name, route:t.route, driver:t.driver_name, time:t.time, cargo:parseInt(t.cargo_count)||0, gross:parseFloat(t.gross)||0, net:parseFloat(t.net)||0, commRate:parseFloat(t.commission_rate)||0, status:t.status };
+            });
+            var kpi = res.kpi||{};
+            document.getElementById('kpiTotal').textContent  = kpi.total||0;
+            document.getElementById('kpiActive').textContent = kpi.active||0;
+            document.getElementById('kpiCargo').textContent  = kpi.cargo_today||0;
+            document.getElementById('kpiNet').textContent    = '\u20ba'+(parseFloat(kpi.net_paid)||0).toLocaleString('tr-TR',{minimumFractionDigits:0});
+            filterVoyages();
+        })
+        .catch(function() { showToast('Ba\u011flant\u0131 hatas\u0131!', 'error'); });
+    }
 
     function statusBadge(s) {
         var labels = { bekliyor: 'Bekliyor', yolda: 'Yolda', tamamlandi: 'Tamamlandı', iptal: 'İptal' };
@@ -242,7 +255,7 @@
         var filtered = voyages.filter(function (v) {
             var matchSearch = !search || v.plate.toLowerCase().includes(search) || v.companyName.toLowerCase().includes(search) || v.route.toLowerCase().includes(search);
             var matchStatus = !status || v.status === status;
-            var matchCompany = !company || v.company === company;
+            var matchCompany = !company || String(v.company_id) === String(company);
             return matchSearch && matchStatus && matchCompany;
         });
         renderVoyages(filtered);
@@ -268,5 +281,6 @@
         setTimeout(function () { t.style.opacity = '0'; setTimeout(function () { t.remove(); }, 300); }, 3000);
     }
 
-    renderVoyages(voyages);
+    loadVoyages();
+    document.getElementById('filterDate').addEventListener('change', loadVoyages);
 </script>

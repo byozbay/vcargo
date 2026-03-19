@@ -1,31 +1,36 @@
 <?php
+require_once __DIR__ . '/../../core/autoload.php';
 $todayDate = date('d.m.Y');
-
-$users = [
-    ['id' => 1, 'name' => 'Mehmet Kara', 'email' => 'm.kara@vcargo.com.tr', 'role' => 'branch_manager', 'branch' => 'İstanbul Otogar', 'city' => 'İstanbul', 'phone' => '0532 111 0001', 'last_login' => '5 dk önce', 'status' => 'active'],
-    ['id' => 2, 'name' => 'Ayşe Yıldız', 'email' => 'a.yildiz@vcargo.com.tr', 'role' => 'branch_staff', 'branch' => 'Ankara Şehirler', 'city' => 'Ankara', 'phone' => '0533 222 0002', 'last_login' => '32 dk önce', 'status' => 'active'],
-    ['id' => 3, 'name' => 'Hasan Demir', 'email' => 'h.demir@vcargo.com.tr', 'role' => 'region_manager', 'branch' => 'Ege Bölgesi', 'city' => 'İzmir', 'phone' => '0534 333 0003', 'last_login' => '2 sa önce', 'status' => 'active'],
-    ['id' => 4, 'name' => 'Caner Güneş', 'email' => 'c.gunes@vcargo.com.tr', 'role' => 'branch_staff', 'branch' => 'Bursa Osmangazi', 'city' => 'Bursa', 'phone' => '0535 444 0004', 'last_login' => 'Dün', 'status' => 'active'],
-    ['id' => 5, 'name' => 'Selin Çelik', 'email' => 's.celik@vcargo.com.tr', 'role' => 'branch_manager', 'branch' => 'Antalya Liman', 'city' => 'Antalya', 'phone' => '0536 555 0005', 'last_login' => 'Dün', 'status' => 'active'],
-    ['id' => 6, 'name' => 'Ali Şahin', 'email' => 'a.sahin@vcargo.com.tr', 'role' => 'branch_staff', 'branch' => 'Konya Merkez', 'city' => 'Konya', 'phone' => '0537 666 0006', 'last_login' => '3 gün önce', 'status' => 'active'],
-    ['id' => 7, 'name' => 'Fatma Arslan', 'email' => 'f.arslan@vcargo.com.tr', 'role' => 'branch_manager', 'branch' => 'Adana Seyhan', 'city' => 'Adana', 'phone' => '0538 777 0007', 'last_login' => '1 hafta önce', 'status' => 'active'],
-    ['id' => 8, 'name' => 'Kemal Öztürk', 'email' => 'k.ozturk@vcargo.com.tr', 'role' => 'accountant', 'branch' => 'Merkez', 'city' => 'İstanbul', 'phone' => '0539 888 0008', 'last_login' => '1 sa önce', 'status' => 'active'],
-    ['id' => 9, 'name' => 'Zeynep Ok', 'email' => 'z.ok@vcargo.com.tr', 'role' => 'branch_staff', 'branch' => 'Trabzon Sahil', 'city' => 'Trabzon', 'phone' => '0540 999 0009', 'last_login' => '2 gün önce', 'status' => 'passive'],
-    ['id' => 10, 'name' => 'Kadir Bal', 'email' => 'k.bal@vcargo.com.tr', 'role' => 'branch_staff', 'branch' => 'Kayseri Terminal', 'city' => 'Kayseri', 'phone' => '0541 100 0010', 'last_login' => '3 hafta önce', 'status' => 'suspended'],
-    ['id' => 11, 'name' => 'Nurgül Aydın', 'email' => 'n.aydin@vcargo.com.tr', 'role' => 'courier', 'branch' => 'İstanbul Otogar', 'city' => 'İstanbul', 'phone' => '0542 200 0011', 'last_login' => '10 dk önce', 'status' => 'active'],
-    ['id' => 12, 'name' => 'Burak Koç', 'email' => 'b.koc@vcargo.com.tr', 'role' => 'admin', 'branch' => 'Sistem', 'city' => '—', 'phone' => '0543 300 0012', 'last_login' => 'Şu an', 'status' => 'active'],
-];
-
+$base  = new BaseModel();
+$users = $base->query(
+    "SELECT u.user_id AS id,
+            CONCAT(u.first_name,' ',u.last_name) AS name,
+            u.email, u.role, u.phone,
+            COALESCE(b.name,'Sistem') AS branch,
+            COALESCE(c.name,'—') AS city,
+            CASE WHEN u.last_login IS NULL THEN '—'
+                 WHEN TIMESTAMPDIFF(MINUTE,u.last_login,NOW())<60
+                   THEN CONCAT(TIMESTAMPDIFF(MINUTE,u.last_login,NOW()),' dk önce')
+                 WHEN TIMESTAMPDIFF(HOUR,u.last_login,NOW())<24
+                   THEN CONCAT(TIMESTAMPDIFF(HOUR,u.last_login,NOW()),' sa önce')
+                 ELSE DATE_FORMAT(u.last_login,'%d.%m.%Y')
+            END AS last_login,
+            CASE u.is_active WHEN 1 THEN 'active' ELSE 'passive' END AS status
+     FROM users u
+     LEFT JOIN branches b ON b.branch_id = u.branch_id
+     LEFT JOIN cities c ON c.city_id = b.city_id
+     ORDER BY u.is_active DESC, u.last_login DESC"
+);
 $roleLabels = [
-    'admin' => ['Süper Admin', '#c03060', '#fff0f2'],
-    'region_manager' => ['Bölge Müdürü', '#8e24aa', '#f3e5f5'],
-    'branch_manager' => ['Şube Müdürü', '#1b84ff', '#e8f1ff'],
-    'branch_staff' => ['Personel', '#0e8045', '#e7f9f0'],
-    'accountant' => ['Muhasebe', '#e08b00', '#fff8ec'],
-    'courier' => ['Kurye', '#78909c', '#f1f3f4'],
+    'super_admin'=>['Süper Admin','#c03060','#fff0f2'],
+    'admin'=>['Süper Admin','#c03060','#fff0f2'],
+    'accountant'=>['Muhasebe','#e08b00','#fff8ec'],
+    'region_manager'=>['Bölge Müdürü','#8e24aa','#f3e5f5'],
+    'branch_manager'=>['Şube Müdürü','#1b84ff','#e8f1ff'],
+    'branch_staff'=>['Personel','#0e8045','#e7f9f0'],
+    'courier'=>['Kurye','#78909c','#f1f3f4'],
 ];
-
-$totalActive = count(array_filter($users, fn($u) => $u['status'] === 'active'));
+$totalActive  = count(array_filter($users, fn($u) => $u['status'] === 'active'));
 $totalPassive = count(array_filter($users, fn($u) => $u['status'] !== 'active'));
 ?>
 <main class="main-content">

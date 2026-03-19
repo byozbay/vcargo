@@ -1,4 +1,9 @@
 <?php
+require_once __DIR__ . '/../../core/autoload.php';
+$base = new BaseModel();
+$bus_companies = $base->query("SELECT bc.company_id, bc.name, bc.contact_person, bc.phone, bc.commission_rate, bc.is_active, COUNT(DISTINCT t.trip_id) AS total_trips FROM bus_companies bc LEFT JOIN trips t ON t.company_id=bc.company_id GROUP BY bc.company_id, bc.name, bc.contact_person, bc.phone, bc.commission_rate, bc.is_active ORDER BY bc.name");
+?>
+<?php
 $companies = [
     ['id' => 1, 'name' => 'Metro Turizm', 'code' => 'MTR', 'contact' => 'Ali Yılmaz', 'phone' => '0212 444 0001', 'email' => 'info@metro.com.tr', 'iban' => 'TR12 0001 2345 6789 0123 4567 89', 'comm' => 15, 'trips_month' => 184, 'cargo_month' => 1840, 'revenue_month' => 92000, 'status' => 'active'],
     ['id' => 2, 'name' => 'Pamukkale Turizm', 'code' => 'PMK', 'contact' => 'Fatma Çelik', 'phone' => '0212 444 0002', 'email' => 'info@pamukkale.com.tr', 'iban' => 'TR12 0001 2345 6789 0123 4567 90', 'comm' => 13, 'trips_month' => 141, 'cargo_month' => 1290, 'revenue_month' => 64500, 'status' => 'active'],

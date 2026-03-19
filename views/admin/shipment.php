@@ -1,3 +1,34 @@
+<?php
+require_once __DIR__ . "/../../core/autoload.php";
+$base = new BaseModel();
+$counts = $base->query(
+    "SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status='in_transit' THEN 1 ELSE 0 END) AS in_transit,
+        SUM(CASE WHEN status IN('in_storage','at_branch') THEN 1 ELSE 0 END) AS in_storage,
+        SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered
+     FROM shipments WHERE is_active=1"
+)[0] ?? [];
+$shipments = $base->query(
+    "SELECT s.shipment_id, s.tracking_no, s.sender_name, s.sender_phone,
+            s.receiver_name, s.receiver_phone, s.status, s.payment_type,
+            s.total_fee, DATE_FORMAT(s.created_at,'%d.%m.%Y %H:%i') AS created_fmt,
+            c.name AS dest_city, b.name AS branch_name
+     FROM shipments s
+     LEFT JOIN cities c ON c.city_id = s.destination_city_id
+     LEFT JOIN branches b ON b.branch_id = s.branch_id
+     WHERE s.is_active = 1
+     ORDER BY s.created_at DESC LIMIT 200"
+);
+$statusLabel = ['in_transit'=>'Sevkte','in_storage'=>'Emanette','at_branch'=>'Şubede',
+                'delivered'=>'Teslim Edildi','cancelled'=>'İptal','pending'=>'Bekliyor'];
+$payLabel = ['SENDER_PAYS'=>'Nakit','CARD'=>'Kredi Kartı','RECEIVER_PAYS'=>'C.O.D','ACCOUNT'=>'Cari'];
+$payStyle = ['SENDER_PAYS'=>'background:#e8f1ff;color:#1b84ff;','CARD'=>'background:#e7f9f0;color:#0e8045;',
+             'RECEIVER_PAYS'=>'background:#fff8ec;color:#e08b00;','ACCOUNT'=>'background:#f3e5f5;color:#8e24aa;'];
+$statStyle = ['in_transit'=>'background:#e8f1ff;color:#145dc0;','in_storage'=>'background:#fff8ec;color:#e08b00;',
+              'at_branch'=>'background:#fff8ec;color:#e08b00;','delivered'=>'background:#e7f9f0;color:#0e8045;',
+              'cancelled'=>'background:#fff0f2;color:#c03060;','pending'=>'background:#f0f0f0;color:#555;'];
+?>
 <main class="main-content">
 
 <!-- ── Page Header ── -->
@@ -25,25 +56,25 @@
         <div class="col-6 col-md-3">
             <div class="card" style="padding:14px 16px;">
                 <div class="card-sm-label">Toplam Kargo</div>
-                <div class="stat-value" style="font-size:1.5rem;">138</div>
+                <div class="stat-value" style="font-size:1.5rem;"><?= number_format($counts['total'] ?? 0) ?></div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card" style="padding:14px 16px;">
                 <div class="card-sm-label">Sevkte</div>
-                <div class="stat-value" style="font-size:1.5rem;color:#1b84ff;">34</div>
+                <div class="stat-value" style="font-size:1.5rem;color:#1b84ff;"><?= number_format($counts['in_transit'] ?? 0) ?></div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card" style="padding:14px 16px;">
                 <div class="card-sm-label">Emanette</div>
-                <div class="stat-value" style="font-size:1.5rem;color:#e08b00;">11</div>
+                <div class="stat-value" style="font-size:1.5rem;color:#e08b00;"><?= number_format($counts['in_storage'] ?? 0) ?></div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card" style="padding:14px 16px;">
                 <div class="card-sm-label">Teslim Edildi</div>
-                <div class="stat-value" style="font-size:1.5rem;color:#0e8045;">89</div>
+                <div class="stat-value" style="font-size:1.5rem;color:#0e8045;"><?= number_format($counts['delivered'] ?? 0) ?></div>
             </div>
         </div>
     </div>
@@ -102,7 +133,7 @@
         <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
             <div class="section-label">Kargo Kayıtları</div>
             <div class="d-flex gap-2">
-                <span style="font-size:.78rem;color:var(--text-muted);align-self:center;">138 kayıt bulundu</span>
+                <span style="font-size:.78rem;color:var(--text-muted);align-self:center;"><?= count($shipments) ?> kayıt bulundu</span>
                 <button class="btn-outline-secondary-sm d-flex align-items-center gap-1" style="font-size:.78rem;padding:5px 12px;">
                     <i class="bi bi-download"></i> Dışa Aktar
                 </button>
@@ -127,151 +158,44 @@
                 </thead>
                 <tbody id="shipmentBody">
 
-                    <tr data-status="sevkte" data-payment="nakit">
-                        <td><input type="checkbox" class="row-check" /></td>
-                        <td><a href="?page=shipment_detail&id=1" style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;text-decoration:none;">TRK-240224-001</a></td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Ahmet Yılmaz</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0532 xxx xx xx</div>
-                        </td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Mehmet Demir</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0505 xxx xx xx</div>
-                        </td>
-                        <td style="font-size:.81rem;">Ankara</td>
-                        <td><span class="status-badge" style="background:#e8f1ff;color:#1b84ff;">Nakit</span></td>
-                        <td style="font-weight:600;font-size:.83rem;">₺85</td>
-                        <td style="font-size:.79rem;color:var(--text-muted);">24.02.2026 08:14</td>
-                        <td><span class="status-badge status-sevkte">Sevkte</span></td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <button class="icon-btn-circle" title="Detay"><i class="bi bi-eye" style="font-size:.8rem;"></i></button>
-                                <button class="icon-btn-circle" title="Barkod Bas"><i class="bi bi-upc-scan" style="font-size:.8rem;"></i></button>
-                            </div>
-                        </td>
-                    </tr>
+                    <?php if (empty($shipments)): ?>
+                        <tr><td colspan="11" class="text-center" style="padding:32px;color:var(--text-muted);font-size:.82rem;">
+                            <i class="bi bi-inbox" style="font-size:1.8rem;display:block;margin-bottom:8px;opacity:.4;"></i>
+                            Kargo bulunamadı.
+                        </td></tr>
+                    <?php else: foreach ($shipments as $s): ?>
+                        <tr data-status="<?= htmlspecialchars($s['status']) ?>">
+                            <td><input type="checkbox" class="row-check" /></td>
+                            <td><a href="?page=shipment_detail&id=<?= $s['shipment_id'] ?>"
+                                   style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;text-decoration:none;">
+                                <?= htmlspecialchars($s['tracking_no']) ?></a></td>
+                            <td>
+                                <div style="font-size:.81rem;font-weight:500;"><?= htmlspecialchars($s['sender_name']) ?></div>
+                                <div style="font-size:.72rem;color:var(--text-muted);"><?= htmlspecialchars($s['sender_phone'] ?? '') ?></div>
+                            </td>
+                            <td>
+                                <div style="font-size:.81rem;font-weight:500;"><?= htmlspecialchars($s['receiver_name']) ?></div>
+                                <div style="font-size:.72rem;color:var(--text-muted);"><?= htmlspecialchars($s['receiver_phone'] ?? '') ?></div>
+                            </td>
+                            <td style="font-size:.81rem;"><?= htmlspecialchars($s['dest_city'] ?? '—') ?></td>
+                            <td style="font-size:.79rem;color:var(--text-muted);"><?= htmlspecialchars($s['branch_name'] ?? '—') ?></td>
+                            <td><span class="status-badge" style="<?= $payStyle[$s['payment_type']] ?? '' ?>">
+                                <?= $payLabel[$s['payment_type']] ?? $s['payment_type'] ?></span></td>
+                            <td style="font-weight:600;font-size:.83rem;">₺<?= number_format((float)$s['total_fee'],2) ?></td>
+                            <td style="font-size:.79rem;color:var(--text-muted);"><?= $s['created_fmt'] ?></td>
+                            <td><span class="status-badge" style="<?= $statStyle[$s['status']] ?? '' ?>">
+                                <?= $statusLabel[$s['status']] ?? $s['status'] ?></span></td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    <a href="?page=shipment_detail&id=<?= $s['shipment_id'] ?>" class="icon-btn-circle" title="Detay"
+                                       style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;">
+                                        <i class="bi bi-eye" style="font-size:.8rem;"></i></a>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; endif; ?>
 
-                    <tr data-status="emanette" data-payment="cod">
-                        <td><input type="checkbox" class="row-check" /></td>
-                        <td><a href="?page=shipment_detail&id=2" style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;text-decoration:none;">TRK-240224-002</a></td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Fatma Kaya</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0541 xxx xx xx</div>
-                        </td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Ayşe Çelik</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0555 xxx xx xx</div>
-                        </td>
-                        <td style="font-size:.81rem;">İzmir</td>
-                        <td><span class="status-badge" style="background:#fff8ec;color:#e08b00;">C.O.D</span></td>
-                        <td style="font-weight:600;font-size:.83rem;">₺120</td>
-                        <td style="font-size:.79rem;color:var(--text-muted);">24.02.2026 09:30</td>
-                        <td><span class="status-badge status-emanette">Emanette</span></td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <button class="icon-btn-circle" title="Detay"><i class="bi bi-eye" style="font-size:.8rem;"></i></button>
-                                <button class="icon-btn-circle" title="Teslim Et"><i class="bi bi-check2-circle" style="font-size:.8rem;"></i></button>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <tr data-status="teslim" data-payment="kart">
-                        <td><input type="checkbox" class="row-check" /></td>
-                        <td><a href="?page=shipment_detail&id=3" style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;text-decoration:none;">TRK-240224-003</a></td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Ali Öztürk</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0533 xxx xx xx</div>
-                        </td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Hasan Aydın</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0544 xxx xx xx</div>
-                        </td>
-                        <td style="font-size:.81rem;">Bursa</td>
-                        <td><span class="status-badge" style="background:#e7f9f0;color:#0e8045;">Kredi Kartı</span></td>
-                        <td style="font-weight:600;font-size:.83rem;">₺65</td>
-                        <td style="font-size:.79rem;color:var(--text-muted);">24.02.2026 10:05</td>
-                        <td><span class="status-badge status-teslim">Teslim Edildi</span></td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <button class="icon-btn-circle" title="Detay"><i class="bi bi-eye" style="font-size:.8rem;"></i></button>
-                                <button class="icon-btn-circle" title="Barkod Bas"><i class="bi bi-upc-scan" style="font-size:.8rem;"></i></button>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <tr data-status="teslim" data-payment="cari">
-                        <td><input type="checkbox" class="row-check" /></td>
-                        <td><a href="?page=shipment_detail&id=4" style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;text-decoration:none;">TRK-240224-004</a></td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">ABC Lojistik Ltd.</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0212 xxx xx xx</div>
-                        </td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Caner Yıldız</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0551 xxx xx xx</div>
-                        </td>
-                        <td style="font-size:.81rem;">Antalya</td>
-                        <td><span class="status-badge" style="background:#f3e5f5;color:#8e24aa;">Cari</span></td>
-                        <td style="font-weight:600;font-size:.83rem;">₺145</td>
-                        <td style="font-size:.79rem;color:var(--text-muted);">24.02.2026 11:20</td>
-                        <td><span class="status-badge status-teslim">Teslim Edildi</span></td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <button class="icon-btn-circle" title="Detay"><i class="bi bi-eye" style="font-size:.8rem;"></i></button>
-                                <button class="icon-btn-circle" title="Barkod Bas"><i class="bi bi-upc-scan" style="font-size:.8rem;"></i></button>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <tr data-status="iptal" data-payment="nakit">
-                        <td><input type="checkbox" class="row-check" /></td>
-                        <td><a href="?page=shipment_detail&id=5" style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;text-decoration:none;">TRK-240224-005</a></td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Kemal Şahin</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0545 xxx xx xx</div>
-                        </td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Zeynep Arslan</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0567 xxx xx xx</div>
-                        </td>
-                        <td style="font-size:.81rem;">Konya</td>
-                        <td><span class="status-badge" style="background:#e8f1ff;color:#1b84ff;">Nakit</span></td>
-                        <td style="font-weight:600;font-size:.83rem;">₺95</td>
-                        <td style="font-size:.79rem;color:var(--text-muted);">24.02.2026 12:45</td>
-                        <td><span class="status-badge status-iptal">İptal</span></td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <button class="icon-btn-circle" title="Detay"><i class="bi bi-eye" style="font-size:.8rem;"></i></button>
-                                <button class="icon-btn-circle" title="Barkod Bas"><i class="bi bi-upc-scan" style="font-size:.8rem;"></i></button>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <tr data-status="sevkte" data-payment="nakit">
-                        <td><input type="checkbox" class="row-check" /></td>
-                        <td><a href="?page=shipment_detail&id=6" style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;text-decoration:none;">TRK-240224-006</a></td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Meral Güneş</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0538 xxx xx xx</div>
-                        </td>
-                        <td>
-                            <div style="font-size:.81rem;font-weight:500;">Tarık Doğan</div>
-                            <div style="font-size:.72rem;color:var(--text-muted);">0594 xxx xx xx</div>
-                        </td>
-                        <td style="font-size:.81rem;">Adana</td>
-                        <td><span class="status-badge" style="background:#e8f1ff;color:#1b84ff;">Nakit</span></td>
-                        <td style="font-weight:600;font-size:.83rem;">₺110</td>
-                        <td style="font-size:.79rem;color:var(--text-muted);">24.02.2026 13:10</td>
-                        <td><span class="status-badge status-sevkte">Sevkte</span></td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <button class="icon-btn-circle" title="Detay"><i class="bi bi-eye" style="font-size:.8rem;"></i></button>
-                                <button class="icon-btn-circle" title="Barkod Bas"><i class="bi bi-upc-scan" style="font-size:.8rem;"></i></button>
-                            </div>
-                        </td>
-                    </tr>
-
-                </tbody>
+</tbody>
             </table>
         </div>
 

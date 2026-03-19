@@ -1,4 +1,9 @@
 <?php
+require_once __DIR__ . '/../../core/autoload.php';
+$base = new BaseModel();
+$branches = $base->query("SELECT b.branch_id, MIN(b.name) AS name, MIN(c.name) AS city, b.address, b.phone, b.branch_type, b.is_active, b.free_storage_hours, b.storage_hourly_rate, b.baggage_hourly_rate, COUNT(u.user_id) AS staff_count FROM branches b LEFT JOIN cities c ON c.city_id=b.city_id LEFT JOIN users u ON u.branch_id=b.branch_id AND u.is_active=1 GROUP BY b.branch_id, b.address, b.phone, b.branch_type, b.is_active, b.free_storage_hours, b.storage_hourly_rate, b.baggage_hourly_rate ORDER BY b.is_active DESC, b.name");
+?>
+<?php
 $todayDate = date('d.m.Y');
 
 // Mock branches data
