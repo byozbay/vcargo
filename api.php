@@ -261,6 +261,49 @@ try {
             return ['success' => true, 'user_id' => $id];
         })(),
 
+        'branches.create' => (function () use ($input, $userId) {
+            $base = new BaseModel();
+            $name    = trim($input['name'] ?? '');
+            $phone   = trim($input['phone'] ?? '');
+            $cityId  = (int)($input['city_id'] ?? 0);
+            $regionId= (int)($input['region_id'] ?? 0);
+            if (!$name || !$phone || !$cityId) throw new \Exception('Ad, telefon ve şehir zorunludur.');
+
+            // Auto-generate unique branch code: STN-CITYID-YYYYMMDD
+            $code = 'STN-' . $cityId . '-' . date('Ymd') . rand(10,99);
+
+            $db  = new Database();
+            $pdo = $db->connect();
+            $now = date('Y-m-d H:i:s');
+            $stmt = $pdo->prepare(
+                "INSERT INTO branches (name, code, type, region_id, city_id, phone, email,
+                    address, manager_name, manager_phone,
+                    free_storage_hours, storage_hourly_rate, baggage_hourly_rate,
+                    status, is_active, created_at, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)"
+            );
+            $stmt->execute([
+                $name,
+                $code,
+                $input['branch_type'] ?? 'CORPORATE',
+                $regionId ?: null,
+                $cityId,
+                $phone,
+                trim($input['email'] ?? ''),
+                trim($input['address'] ?? ''),
+                trim($input['manager_name'] ?? ''),
+                trim($input['manager_phone'] ?? ''),
+                (int)($input['free_storage_hours'] ?? 2),
+                (float)($input['storage_hourly_rate'] ?? 5),
+                (float)($input['baggage_hourly_rate'] ?? $input['storage_hourly_rate'] ?? 5),
+                $input['status'] ?? 'active',
+                $now, $now,
+            ]);
+            $newId = (int)$pdo->lastInsertId();
+            AuditModel::log('branch.create', 'branch', $newId, null, ['name' => $name, 'code' => $code]);
+            return ['success' => true, 'branch_id' => $newId, 'code' => $code];
+        })(),
+
         // ── CITIES & BUS COMPANIES ───────────────────────────
         'cities.list' => (function () {
             $m = new BaseModel();

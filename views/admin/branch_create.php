@@ -1,98 +1,8 @@
 <?php
-// Mock data for dropdowns
-$regions = [
-    ['id' => 1, 'name' => 'Marmara Bölgesi'],
-    ['id' => 2, 'name' => 'İç Anadolu Bölgesi'],
-    ['id' => 3, 'name' => 'Ege Bölgesi'],
-    ['id' => 4, 'name' => 'Akdeniz Bölgesi'],
-    ['id' => 5, 'name' => 'Karadeniz Bölgesi'],
-    ['id' => 6, 'name' => 'Doğu Anadolu Bölgesi'],
-    ['id' => 7, 'name' => 'Güneydoğu Anadolu Bölgesi'],
-];
-$cities = [
-    'Adana',
-    'Adıyaman',
-    'Afyonkarahisar',
-    'Ağrı',
-    'Amasya',
-    'Ankara',
-    'Antalya',
-    'Artvin',
-    'Aydın',
-    'Balıkesir',
-    'Bilecik',
-    'Bingöl',
-    'Bitlis',
-    'Bolu',
-    'Burdur',
-    'Bursa',
-    'Çanakkale',
-    'Çankırı',
-    'Çorum',
-    'Denizli',
-    'Diyarbakır',
-    'Edirne',
-    'Elazığ',
-    'Erzincan',
-    'Erzurum',
-    'Eskişehir',
-    'Gaziantep',
-    'Giresun',
-    'Gümüşhane',
-    'Hakkari',
-    'Hatay',
-    'Isparta',
-    'Mersin',
-    'İstanbul',
-    'İzmir',
-    'Kars',
-    'Kastamonu',
-    'Kayseri',
-    'Kırklareli',
-    'Kırşehir',
-    'Kocaeli',
-    'Konya',
-    'Kütahya',
-    'Malatya',
-    'Manisa',
-    'Kahramanmaraş',
-    'Mardin',
-    'Muğla',
-    'Muş',
-    'Nevşehir',
-    'Niğde',
-    'Ordu',
-    'Rize',
-    'Sakarya',
-    'Samsun',
-    'Siirt',
-    'Sinop',
-    'Sivas',
-    'Tekirdağ',
-    'Tokat',
-    'Trabzon',
-    'Tunceli',
-    'Şanlıurfa',
-    'Uşak',
-    'Van',
-    'Yozgat',
-    'Zonguldak',
-    'Aksaray',
-    'Bayburt',
-    'Karaman',
-    'Kırıkkale',
-    'Batman',
-    'Şırnak',
-    'Bartın',
-    'Ardahan',
-    'Iğdır',
-    'Yalova',
-    'Karabük',
-    'Kilis',
-    'Osmaniye',
-    'Düzce'
-];
-sort($cities);
+require_once __DIR__ . '/../../core/autoload.php';
+$base    = new BaseModel();
+$regions = $base->query("SELECT region_id AS id, name FROM regions WHERE is_active=1 ORDER BY name");
+$cities  = $base->query("SELECT city_id, name FROM cities WHERE is_active=1 ORDER BY name");
 ?>
 <main class="main-content">
 
@@ -172,11 +82,10 @@ sort($cities);
                             <div class="col-12 col-md-4">
                                 <label class="form-label-sm">Şehir <span style="color:#c03060;">*</span></label>
                                 <select class="form-input" id="branchCity" required>
+                                    <option value=""></option>
                                     <option value="">Seçiniz...</option>
                                     <?php foreach ($cities as $c): ?>
-                                        <option value="<?= $c ?>">
-                                            <?= $c ?>
-                                        </option>
+                                        <option value="<?= $c['city_id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -500,8 +409,41 @@ sort($cities);
             if (!document.getElementById('branchPhone').value.trim()) { showToast('Şube telefonu zorunludur!', 'error'); return; }
             if (!document.getElementById('managerPhone').value.trim()) { showToast('Müdür telefonu zorunludur!', 'error'); return; }
 
-            showToast('✓ ' + name + ' şubesi başarıyla kaydedildi!', 'success');
-            /* TODO: AJAX / form submit */
+            var btn = document.querySelector('button[onclick="submitBranch()"]');
+            if (btn) { btn.disabled = true; }
+
+            var data = {
+                name:                document.getElementById('branchName').value.trim(),
+                branch_type:         selectedType,
+                region_id:           document.getElementById('branchRegion').value,
+                city_id:             document.getElementById('branchCity').value,
+                address:             document.getElementById('branchAddress').value.trim(),
+                phone:               document.getElementById('branchPhone').value.trim(),
+                email:               document.getElementById('branchEmail').value.trim(),
+                manager_name:        document.getElementById('managerName').value.trim(),
+                manager_phone:       document.getElementById('managerPhone').value.trim(),
+                storage_hourly_rate: parseFloat(document.getElementById('storageRate').value) || 5,
+                free_storage_hours:  parseInt(document.getElementById('storageFreeHours').value) || 2,
+                status:              document.getElementById('branchStatus').value,
+                notes:               document.getElementById('branchNotes').value.trim(),
+            };
+
+            fetch('api.php?action=branches.create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(r => r.json())
+            .then(function(res) {
+                if (res.success) {
+                    showToast('✓ ' + data.name + ' şubesi başarıyla kaydedildi!', 'success');
+                    setTimeout(function() { window.location.href = '?page=branches'; }, 1800);
+                } else {
+                    showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+                    if (btn) btn.disabled = false;
+                }
+            })
+            .catch(function() { showToast('Sunucu hatası!', 'error'); if (btn) btn.disabled = false; });
         }
 
         /* ── Reset ── */

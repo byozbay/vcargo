@@ -462,8 +462,38 @@ $roles = [
             if (pwd.length < 8) { showToast('Şifre en az 8 karakter olmalı!', 'error'); return; }
             if (pwd !== pwd2) { showToast('Şifreler eşleşmiyor!', 'error'); return; }
 
-            showToast('✓ ' + first + ' ' + last + ' başarıyla eklendi!', 'success');
-            /* TODO: AJAX */
+            var btn = document.querySelector('[onclick="submitUser()"]');
+            if (btn) { btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
+
+            var data = {
+                full_name:  first + ' ' + last,
+                email:      document.getElementById('userEmail').value.trim(),
+                phone:      document.getElementById('userPhone').value.trim(),
+                password:   pwd,
+                role:       document.getElementById('userRole')?.value || selectedRole,
+                branch_id:  document.getElementById('userBranch')?.value || '',
+                username:   document.getElementById('userEmail').value.trim(),
+            };
+
+            fetch('api.php?action=users.create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(r => r.json())
+            .then(function(res) {
+                if (res.success) {
+                    showToast('✓ ' + first + ' ' + last + ' başarıyla eklendi!', 'success');
+                    setTimeout(function() { window.location.href = '?page=users'; }, 1800);
+                } else {
+                    showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> Kullanıcıyı Kaydet'; }
+                }
+            })
+            .catch(function() {
+                showToast('Sunucu hatası!', 'error');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> Kullanıcıyı Kaydet'; }
+            });
         }
 
         /* ── Reset ── */
