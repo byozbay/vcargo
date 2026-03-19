@@ -57,31 +57,26 @@
 
                         <div class="row g-2 mb-3" id="companyCardRow">
                             <?php
-                            $companies = [
-                                ['key' => 'metro', 'name' => 'Metro Turizm', 'color' => '#e8f1ff', 'icon_color' => '#1b84ff', 'comm' => 15],
-                                ['key' => 'pamukkale', 'name' => 'Pamukkale', 'color' => '#e7f9f0', 'icon_color' => '#0e8045', 'comm' => 15],
-                                ['key' => 'uludag', 'name' => 'Uludağ Turizm', 'color' => '#fff8ec', 'icon_color' => '#e08b00', 'comm' => 12],
-                                ['key' => 'kamil', 'name' => 'Kamil Koç', 'color' => '#f3e5f5', 'icon_color' => '#8e24aa', 'comm' => 13],
-                                ['key' => 'varan', 'name' => 'Varan Turizm', 'color' => '#fff0f2', 'icon_color' => '#c03060', 'comm' => 14],
+                            $base = new BaseModel();
+                            $dbCompanies = $base->query("SELECT * FROM bus_companies WHERE is_active = 1 ORDER BY name LIMIT 5");
+                            $companyColors = [
+                                ['#e8f1ff', '#1b84ff'], ['#e7f9f0', '#0e8045'], ['#fff8ec', '#e08b00'],
+                                ['#f3e5f5', '#8e24aa'], ['#fff0f2', '#c03060'],
                             ];
-                            foreach ($companies as $c): ?>
+                            foreach ($dbCompanies as $i => $c):
+                                $cc = $companyColors[$i % 5];
+                            ?>
                                 <div class="col-6 col-md-4 company-col" data-name="<?= strtolower($c['name']) ?>">
-                                    <label class="company-card" id="cc-<?= $c['key'] ?>"
-                                        onclick="selectCompany('<?= $c['key'] ?>',<?= $c['comm'] ?>)">
-                                        <input type="radio" name="company" value="<?= $c['key'] ?>" style="display:none;" />
+                                    <label class="company-card" id="cc-<?= $c['company_id'] ?>"
+                                        onclick="selectCompany('<?= $c['company_id'] ?>', <?= $c['commission_rate'] ?>)">
+                                        <input type="radio" name="company" value="<?= $c['company_id'] ?>" style="display:none;" />
                                         <div class="d-flex align-items-center gap-2">
-                                            <div
-                                                style="width:32px;height:32px;background:<?= $c['color'] ?>;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                                                <i class="bi bi-bus-front"
-                                                    style="color:<?= $c['icon_color'] ?>;font-size:.85rem;"></i>
+                                            <div style="width:32px;height:32px;background:<?= $cc[0] ?>;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                                <i class="bi bi-bus-front" style="color:<?= $cc[1] ?>;font-size:.85rem;"></i>
                                             </div>
                                             <div>
-                                                <div style="font-size:.8rem;font-weight:600;">
-                                                    <?= $c['name'] ?>
-                                                </div>
-                                                <div style="font-size:.7rem;color:var(--text-muted);">Kom. %
-                                                    <?= $c['comm'] ?>
-                                                </div>
+                                                <div style="font-size:.8rem;font-weight:600;"><?= htmlspecialchars($c['name']) ?></div>
+                                                <div style="font-size:.7rem;color:var(--text-muted);">Kom. %<?= $c['commission_rate'] ?></div>
                                             </div>
                                         </div>
                                     </label>
@@ -560,8 +555,34 @@
     function submitVoyage(e) {
         e.preventDefault();
         if (!selectedCompany) { showToast('Lütfen bir firma seçin!', 'error'); return; }
-        showToast('✓ Sefer başarıyla kaydedildi!', 'success');
-        /* TODO: AJAX */
+
+        var data = {
+            company_id:          selectedCompany,
+            plate_no:            document.getElementById('plate').value,
+            driver_name:         document.getElementById('driverName').value,
+            driver_phone:        document.getElementById('driverPhone').value,
+            departure_time:      document.getElementById('departureTime').value.replace('T', ' '),
+            arrival_time:        (document.getElementById('arrivalTime').value || '').replace('T', ' ') || null,
+            origin_city_id:      null, // will be resolved server-side
+            destination_city_id: null,
+            total_cargo_fee:     0,
+        };
+
+        fetch('api.php?action=trips.create', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast('✓ Sefer başarıyla kaydedildi!', 'success');
+                setTimeout(() => { window.location.href = '?page=voyage'; }, 2000);
+            } else {
+                showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+            }
+        })
+        .catch(() => showToast('Sunucu hatası!', 'error'));
     }
     function resetPreview() {
         selectedCompany = '';

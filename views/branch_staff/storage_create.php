@@ -370,29 +370,30 @@
     }
 
     /* ── Kargo Takip Ara ── */
-    var mockShipments = {
-        'TRK-240224-001': { receiver: 'Ahmet Yılmaz', phone: '0532 xxx xx xx', city: 'Ankara' },
-        'TRK-240224-002': { receiver: 'Fatma Kaya', phone: '0541 xxx xx xx', city: 'İzmir' },
-        'TRK-240224-004': { receiver: 'Caner Yıldız', phone: '0551 xxx xx xx', city: 'Antalya' },
-    };
-
     function lookupShipment() {
         var val = document.getElementById('linkedTracking').value.trim().toUpperCase();
         if (!val) return;
-        var s = mockShipments[val];
-        var infoEl = document.getElementById('linkedShipmentInfo');
-        var infoTxt = document.getElementById('linkedInfo');
 
-        if (s) {
-            document.getElementById('ownerName').value = s.receiver;
-            document.getElementById('ownerPhone').value = s.phone;
-            infoTxt.textContent = val + ' → ' + s.receiver + ' · ' + s.city;
-            infoEl.style.display = 'block';
-            showToast('Kargo bulundu, bilgiler dolduruldu.', 'success');
-        } else {
-            infoEl.style.display = 'none';
-            showToast('Kargo bulunamadı: ' + val, 'error');
-        }
+        fetch('api.php?action=shipments.list&search=' + encodeURIComponent(val))
+        .then(r => r.json())
+        .then(res => {
+            var list = res.data || [];
+            var infoEl = document.getElementById('linkedShipmentInfo');
+            var infoTxt = document.getElementById('linkedInfo');
+
+            if (list.length > 0) {
+                var s = list[0];
+                document.getElementById('ownerName').value = s.receiver_name || '';
+                document.getElementById('ownerPhone').value = s.receiver_phone || '';
+                infoTxt.textContent = s.tracking_no + ' → ' + s.receiver_name + ' · ' + (s.dest_city || '-');
+                infoEl.style.display = 'block';
+                showToast('Kargo bulundu, bilgiler dolduruldu.', 'success');
+            } else {
+                infoEl.style.display = 'none';
+                showToast('Kargo bulunamadı: ' + val, 'error');
+            }
+        })
+        .catch(() => showToast('Sunucu hatası!', 'error'));
     }
 
     /* ── Tahmini Ücret Hesapla ── */
@@ -414,11 +415,41 @@
     /* ── Kaydet ── */
     function submitStorage(e) {
         e.preventDefault();
-        showToast('Emanet kaydı oluşturuldu! Fiş hazırlanıyor...', 'success');
-        /* TODO: AJAX */
+        var typeMap = {'kargo': 'cargo', 'bagaj': 'baggage'};
+        var itemMap = {'koli': 'box', 'bavul': 'suitcase', 'canta': 'bag', 'parca': 'other', 'diger': 'other'};
+
+        var data = {
+            type:             typeMap[currentType] || 'baggage',
+            owner_name:       document.getElementById('ownerName').value,
+            owner_phone:      document.getElementById('ownerPhone').value,
+            owner_tc_no:      document.getElementById('ownerIdNo').value || null,
+            item_type:        itemMap[document.getElementById('itemType').value] || 'other',
+            item_description: document.getElementById('itemDesc').value,
+            piece_count:      parseInt(document.getElementById('itemQty').value) || 1,
+            location:         document.getElementById('locationCode').value,
+            check_in:         document.getElementById('entryTime').value.replace('T', ' '),
+            free_hours:       parseInt(document.getElementById('freeHours').value) || 4,
+            hourly_rate:      parseFloat(document.getElementById('hourlyRate').value) || 2,
+        };
+
+        fetch('api.php?action=storage.create', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast('Emanet kaydı oluşturuldu! No: ' + res.record_no, 'success');
+                setTimeout(() => { window.location.href = '?page=storage'; }, 2000);
+            } else {
+                showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+            }
+        })
+        .catch(() => showToast('Sunucu hatası!', 'error'));
     }
     function saveOnly() {
-        showToast('Emanet kaydedildi.', 'success');
+        submitStorage(new Event('submit'));
     }
 
     /* ── Toast ── */

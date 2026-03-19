@@ -1,5 +1,64 @@
 <?php
+// ── Dashboard Real Data ──────────────────────────────────────
 $todayDate = date('d.m.Y');
+
+$branchModel  = new BranchModel();
+$shipModel    = new ShipmentModel();
+$storageModel = new StorageModel();
+$txModel      = new TransactionModel();
+
+// KPI Cards
+$totalBranches = $branchModel->count(['is_active' => 1, 'status' => 'active']);
+$pendingBranches = $branchModel->count(['status' => 'pending']);
+$shipStats    = $shipModel->getDashboardStats(); // total, in_transit, in_storage, delivered, accepted
+$storStats    = $storageModel->getStats();
+$vaultSummary = $txModel->getDailySummary((int)($_SESSION['branch_id'] ?? 0));
+
+// Branch performance
+$allBranches = $branchModel->getAllWithCity();
+
+// Recent transactions (last 10)
+$recentTx = $txModel->getVaultTransactions(0);
+if (count($recentTx) > 8) $recentTx = array_slice($recentTx, 0, 8);
+
+// Recent users
+$userModel  = new UserModel();
+$recentUsers = $userModel->getList('', '', 0);
+if (count($recentUsers) > 4) $recentUsers = array_slice($recentUsers, 0, 4);
+
+// Bus companies
+$base = new BaseModel();
+$busCompanies = $base->query("SELECT bc.*, COUNT(t.trip_id) as trip_count 
+    FROM bus_companies bc 
+    LEFT JOIN trips t ON bc.company_id = t.company_id AND t.is_active = 1 
+    WHERE bc.is_active = 1 
+    GROUP BY bc.company_id 
+    ORDER BY trip_count DESC 
+    LIMIT 5");
+$maxTrips = max(array_column($busCompanies, 'trip_count') ?: [1]);
+
+// Monthly revenue
+$monthlyRevenue = $base->query(
+    "SELECT COALESCE(SUM(total_fee), 0) AS total FROM shipments WHERE is_active = 1 AND payment_status = 'paid' AND MONTH(created_at) = MONTH(NOW()) AND YEAR(created_at) = YEAR(NOW())"
+);
+$monthlyRevTotal = (float) ($monthlyRevenue[0]['total'] ?? 0);
+
+// Accounts over limit
+$accountModel = new AccountModel();
+$overLimitAccounts = $accountModel->getOverLimit();
+$totalOpenBalance = $base->query("SELECT COALESCE(SUM(balance), 0) as total FROM accounts WHERE is_active = 1 AND balance > 0");
+$openBalance = (float) ($totalOpenBalance[0]['total'] ?? 0);
+
+// Trip stats
+$tripStats = $base->query(
+    "SELECT 
+        SUM(CASE WHEN status IN ('departed') AND DATE(departure_time) = CURDATE() THEN 1 ELSE 0 END) AS active_today,
+        SUM(CASE WHEN status = 'completed' AND DATE(updated_at) = CURDATE() THEN 1 ELSE 0 END) AS completed_today,
+        SUM(CASE WHEN status = 'planned' THEN 1 ELSE 0 END) AS planned,
+        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled
+    FROM trips WHERE is_active = 1"
+);
+$ts = $tripStats[0] ?? ['active_today' => 0, 'completed_today' => 0, 'planned' => 0, 'cancelled' => 0];
 ?>
 <main class="main-content">
 
@@ -8,7 +67,7 @@ $todayDate = date('d.m.Y');
     <div>
         <div class="page-title">Sistem Genel Görünümü</div>
         <div class="breadcrumb">
-            <span style="color:var(--text-muted);">Süper Admin</span>
+            <span style="color:var(--text-muted);"><?= htmlspecialchars($_SESSION['user_role'] === 'admin' ? 'Süper Admin' : ($_SESSION['full_name'] ?? 'Kullanıcı')) ?></span>
             <span class="sep">·</span>
             <span style="color:var(--text-muted);"><?= $todayDate ?></span>
         </div>
@@ -34,8 +93,10 @@ $todayDate = date('d.m.Y');
                 <div class="d-flex align-items-start justify-content-between">
                     <div>
                         <div class="card-sm-label">Aktif Şube</div>
-                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;">18</div>
-                        <span class="badge-change badge-up mt-2">&#8593; 3 yeni bu ay</span>
+                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;"><?= $totalBranches ?></div>
+                        <?php if ($pendingBranches > 0): ?>
+                        <span class="badge-change badge-down mt-2"><?= $pendingBranches ?> onay bekliyor</span>
+                        <?php endif; ?>
                     </div>
                     <div style="width:42px;height:42px;border-radius:8px;background:#e8f1ff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                         <i class="bi bi-shop" style="color:#1b84ff;font-size:1.2rem;"></i>
@@ -50,8 +111,8 @@ $todayDate = date('d.m.Y');
                 <div class="d-flex align-items-start justify-content-between">
                     <div>
                         <div class="card-sm-label">Bugün Kargo (Sistem)</div>
-                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;">384</div>
-                        <span class="badge-change badge-up mt-2">&#8593; 8% dün'e göre</span>
+                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;"><?= (int)($shipStats['total'] ?? 0) ?></div>
+                        <span class="badge-change badge-up mt-2"><?= (int)($shipStats['delivered'] ?? 0) ?> teslim edildi</span>
                     </div>
                     <div style="width:42px;height:42px;border-radius:8px;background:#e7f9f0;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                         <i class="bi bi-box-seam" style="color:#0e8045;font-size:1.2rem;"></i>
@@ -66,8 +127,7 @@ $todayDate = date('d.m.Y');
                 <div class="d-flex align-items-start justify-content-between">
                     <div>
                         <div class="card-sm-label">Aylık Ciro</div>
-                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;">₺284K</div>
-                        <span class="badge-change badge-up mt-2">&#8593; 14% geçen aya göre</span>
+                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;">₺<?= number_format($monthlyRevTotal, 0, ',', '.') ?></div>
                     </div>
                     <div style="width:42px;height:42px;border-radius:8px;background:#fff8ec;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                         <i class="bi bi-cash-stack" style="color:#e08b00;font-size:1.2rem;"></i>
@@ -82,8 +142,10 @@ $todayDate = date('d.m.Y');
                 <div class="d-flex align-items-start justify-content-between">
                     <div>
                         <div class="card-sm-label">Açık Cari Bakiye</div>
-                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;color:#c03060;">₺68.4K</div>
-                        <span class="badge-change badge-down mt-2">&#8595; 3 limit aşımı var</span>
+                        <div class="stat-value" style="font-size:1.8rem;margin-top:4px;color:#c03060;">₺<?= number_format($openBalance, 0, ',', '.') ?></div>
+                        <?php if (count($overLimitAccounts) > 0): ?>
+                        <span class="badge-change badge-down mt-2">&#8595; <?= count($overLimitAccounts) ?> limit aşımı</span>
+                        <?php endif; ?>
                     </div>
                     <div style="width:42px;height:42px;border-radius:8px;background:#fff0f2;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                         <i class="bi bi-exclamation-triangle" style="color:#c03060;font-size:1.2rem;"></i>
@@ -94,26 +156,8 @@ $todayDate = date('d.m.Y');
 
     </div><!-- /row 1 -->
 
-    <!-- ══ ROW 2 — Haftalık Gelir Grafiği + Sefer Özeti ══ -->
+    <!-- ══ ROW 2 — Sefer Özeti + Emanet Durumu ══ -->
     <div class="row g-3 mb-3">
-
-        <!-- Alan Grafiği — Günlük Gelir -->
-        <div class="col-12 col-lg-8">
-            <div class="card" style="padding:20px;height:100%;">
-                <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-                    <div>
-                        <div class="section-label">Günlük Kargo Geliri</div>
-                        <div class="section-sub">Son 14 gün — tüm şubeler</div>
-                    </div>
-                    <div class="d-flex gap-2" style="font-size:.75rem;">
-                        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#1b84ff;border-radius:2px;display:inline-block;"></span>Nakit</span>
-                        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#0e8045;border-radius:2px;display:inline-block;"></span>Kart</span>
-                        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#e08b00;border-radius:2px;display:inline-block;"></span>Cari</span>
-                    </div>
-                </div>
-                <canvas id="revenueChart" height="110"></canvas>
-            </div>
-        </div>
 
         <!-- Sefer Mini KPI'ları -->
         <div class="col-12 col-lg-4">
@@ -130,7 +174,7 @@ $todayDate = date('d.m.Y');
                                 <div style="font-size:.72rem;color:var(--text-muted);">Yola çıkmış</div>
                             </div>
                         </div>
-                        <div style="font-size:1.4rem;font-weight:800;color:#1b84ff;">24</div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#1b84ff;"><?= (int)($ts['active_today'] ?? 0) ?></div>
                     </div>
                     <div class="d-flex align-items-center justify-content-between py-2" style="border-bottom:1px solid var(--border-color);">
                         <div class="d-flex align-items-center gap-2">
@@ -142,7 +186,7 @@ $todayDate = date('d.m.Y');
                                 <div style="font-size:.72rem;color:var(--text-muted);">Bugün</div>
                             </div>
                         </div>
-                        <div style="font-size:1.4rem;font-weight:800;color:#0e8045;">11</div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#0e8045;"><?= (int)($ts['completed_today'] ?? 0) ?></div>
                     </div>
                     <div class="d-flex align-items-center justify-content-between py-2" style="border-bottom:1px solid var(--border-color);">
                         <div class="d-flex align-items-center gap-2">
@@ -151,10 +195,10 @@ $todayDate = date('d.m.Y');
                             </div>
                             <div>
                                 <div style="font-size:.8rem;font-weight:600;">Planlanan</div>
-                                <div style="font-size:.72rem;color:var(--text-muted);">Yarın</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Bekliyor</div>
                             </div>
                         </div>
-                        <div style="font-size:1.4rem;font-weight:800;color:#e08b00;">18</div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#e08b00;"><?= (int)($ts['planned'] ?? 0) ?></div>
                     </div>
                     <div class="d-flex align-items-center justify-content-between py-2">
                         <div class="d-flex align-items-center gap-2">
@@ -163,10 +207,101 @@ $todayDate = date('d.m.Y');
                             </div>
                             <div>
                                 <div style="font-size:.8rem;font-weight:600;">İptal</div>
-                                <div style="font-size:.72rem;color:var(--text-muted);">Bu hafta</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Toplam</div>
                             </div>
                         </div>
-                        <div style="font-size:1.4rem;font-weight:800;color:#c03060;">2</div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#c03060;"><?= (int)($ts['cancelled'] ?? 0) ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Emanet Durumu -->
+        <div class="col-12 col-lg-4">
+            <div class="card" style="padding:20px;height:100%;">
+                <div class="section-label mb-3">Emanet Durumu</div>
+                <div class="d-flex flex-column gap-3">
+                    <div class="d-flex align-items-center justify-content-between py-2" style="border-bottom:1px solid var(--border-color);">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:32px;height:32px;background:#e8f1ff;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="bi bi-archive" style="color:#1b84ff;font-size:.85rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:.8rem;font-weight:600;">Depodaki Eşya</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Aktif kayıt</div>
+                            </div>
+                        </div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#1b84ff;"><?= (int)($storStats['total_stored'] ?? 0) ?></div>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between py-2" style="border-bottom:1px solid var(--border-color);">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:32px;height:32px;background:#fff8ec;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="bi bi-hourglass-split" style="color:#e08b00;font-size:.85rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:.8rem;font-weight:600;">Ücretli Sürede</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Ücretsiz süre aşılmış</div>
+                            </div>
+                        </div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#e08b00;"><?= (int)($storStats['paid_count'] ?? 0) ?></div>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between py-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:32px;height:32px;background:#fff0f2;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="bi bi-exclamation-octagon" style="color:#c03060;font-size:.85rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:.8rem;font-weight:600;">Kritik (24+ saat)</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Hemen teslim et</div>
+                            </div>
+                        </div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#c03060;"><?= (int)($storStats['critical_count'] ?? 0) ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kasa Günlük Özet -->
+        <div class="col-12 col-lg-4">
+            <div class="card" style="padding:20px;height:100%;">
+                <div class="section-label mb-3">Bugünkü Kasa</div>
+                <div class="d-flex flex-column gap-3">
+                    <div class="d-flex align-items-center justify-content-between py-2" style="border-bottom:1px solid var(--border-color);">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:32px;height:32px;background:#e7f9f0;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="bi bi-arrow-down-left" style="color:#0e8045;font-size:.85rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:.8rem;font-weight:600;">Toplam Giriş</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Nakit + Kart</div>
+                            </div>
+                        </div>
+                        <div style="font-size:1.2rem;font-weight:800;color:#0e8045;">₺<?= number_format((float)($vaultSummary['total_in'] ?? 0), 2, ',', '.') ?></div>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between py-2" style="border-bottom:1px solid var(--border-color);">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:32px;height:32px;background:#fff0f2;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="bi bi-arrow-up-right" style="color:#c03060;font-size:.85rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:.8rem;font-weight:600;">Toplam Çıkış</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Giderler</div>
+                            </div>
+                        </div>
+                        <div style="font-size:1.2rem;font-weight:800;color:#c03060;">₺<?= number_format((float)($vaultSummary['total_out'] ?? 0), 2, ',', '.') ?></div>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between py-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:32px;height:32px;background:#e8f1ff;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="bi bi-wallet2" style="color:#1b84ff;font-size:.85rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:.8rem;font-weight:600;">Net Kasa</div>
+                                <div style="font-size:.72rem;color:var(--text-muted);">Bugünkü bakiye</div>
+                            </div>
+                        </div>
+                        <?php $netVault = (float)($vaultSummary['total_in'] ?? 0) - (float)($vaultSummary['total_out'] ?? 0); ?>
+                        <div style="font-size:1.2rem;font-weight:800;color:<?= $netVault >= 0 ? '#0e8045' : '#c03060' ?>;">₺<?= number_format($netVault, 2, ',', '.') ?></div>
                     </div>
                 </div>
             </div>
@@ -174,7 +309,7 @@ $todayDate = date('d.m.Y');
 
     </div><!-- /row 2 -->
 
-    <!-- ══ ROW 3 — Şube Performans + Kargo Dağılımı ══ -->
+    <!-- ══ ROW 3 — Şube Performans + Otobüs Firmaları ══ -->
     <div class="row g-3 mb-3">
 
         <!-- Şube Performans Tablosu -->
@@ -182,8 +317,8 @@ $todayDate = date('d.m.Y');
             <div class="card">
                 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                     <div>
-                        <div class="section-label">Şube Performansı</div>
-                        <div class="section-sub">Bu ay — kargo adedi & gelir sıralaması</div>
+                        <div class="section-label">Şube Listesi</div>
+                        <div class="section-sub">Aktif şubeler — durum ve ayarlar</div>
                     </div>
                     <a href="?page=branches" class="btn-outline-secondary-sm" style="font-size:.76rem;">Tümünü Gör</a>
                 </div>
@@ -193,44 +328,25 @@ $todayDate = date('d.m.Y');
                             <tr>
                                 <th>#</th>
                                 <th>Şube</th>
+                                <th>Şehir</th>
                                 <th>Tür</th>
-                                <th>Kargo</th>
-                                <th>Ciro</th>
-                                <th>Hedef %</th>
+                                <th>Durum</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php
-                            $branches = [
-                                ['rank' => 1, 'name' => 'İstanbul Otogar', 'type' => 'CORPORATE', 'cargo' => 842, 'revenue' => 48600, 'target' => 96],
-                                ['rank' => 2, 'name' => 'Ankara Şehirler', 'type' => 'CORPORATE', 'cargo' => 614, 'revenue' => 36200, 'target' => 84],
-                                ['rank' => 3, 'name' => 'İzmir Ege', 'type' => 'FRANCHISE', 'cargo' => 501, 'revenue' => 28900, 'target' => 78],
-                                ['rank' => 4, 'name' => 'Bursa Osmangazi', 'type' => 'FRANCHISE', 'cargo' => 388, 'revenue' => 22100, 'target' => 71],
-                                ['rank' => 5, 'name' => 'Antalya Liman', 'type' => 'FRANCHISE', 'cargo' => 312, 'revenue' => 18400, 'target' => 62],
-                                ['rank' => 6, 'name' => 'Konya Merkez', 'type' => 'FRANCHISE', 'cargo' => 274, 'revenue' => 15600, 'target' => 55],
-                            ];
-                            foreach ($branches as $b):
-                                $barColor = $b['target'] >= 80 ? '#0e8045' : ($b['target'] >= 60 ? '#e08b00' : '#c03060');
+                            <?php foreach (array_slice($allBranches, 0, 6) as $i => $b):
                                 $typeBadge = $b['type'] === 'CORPORATE'
                                     ? '<span class="status-badge" style="background:#e8f1ff;color:#1b84ff;font-size:.68rem;">Merkez</span>'
                                     : '<span class="status-badge" style="background:#f3e5f5;color:#8e24aa;font-size:.68rem;">Bayi</span>';
-                                ?>
+                                $statusColors = ['active' => ['#e7f9f0','#0e8045','Aktif'], 'pending' => ['#fff8ec','#e08b00','Bekliyor'], 'suspended' => ['#fff0f2','#c03060','Askıda']];
+                                $sc = $statusColors[$b['status']] ?? ['#f5f5f5','#666','Bilinmiyor'];
+                            ?>
                                 <tr>
-                                    <td>
-                                        <span style="font-size:.78rem;font-weight:700;color:<?= $b['rank'] <= 3 ? '#e08b00' : 'var(--text-muted)' ?>;">
-                                            <?= $b['rank'] <= 3 ? '🏅' : '#' . $b['rank'] ?>
-                                        </span>
-                                    </td>
-                                    <td style="font-size:.82rem;font-weight:600;"><?= $b['name'] ?></td>
+                                    <td style="font-size:.78rem;font-weight:700;color:var(--text-muted);"><?= $i + 1 ?></td>
+                                    <td style="font-size:.82rem;font-weight:600;"><?= htmlspecialchars($b['name']) ?></td>
+                                    <td style="font-size:.8rem;"><?= htmlspecialchars($b['city_name'] ?? '-') ?></td>
                                     <td><?= $typeBadge ?></td>
-                                    <td style="font-size:.82rem;font-weight:600;"><?= number_format($b['cargo']) ?></td>
-                                    <td style="font-size:.82rem;font-weight:700;color:#0e8045;">₺<?= number_format($b['revenue']) ?></td>
-                                    <td style="min-width:100px;">
-                                        <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:3px;"><?= $b['target'] ?>%</div>
-                                        <div style="height:5px;background:var(--border-color);border-radius:3px;overflow:hidden;">
-                                            <div style="height:5px;width:<?= $b['target'] ?>%;background:<?= $barColor ?>;border-radius:3px;"></div>
-                                        </div>
-                                    </td>
+                                    <td><span class="status-badge" style="background:<?= $sc[0] ?>;color:<?= $sc[1] ?>;font-size:.68rem;"><?= $sc[2] ?></span></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -239,78 +355,33 @@ $todayDate = date('d.m.Y');
             </div>
         </div>
 
-        <!-- Kargo Durum Dağılımı + En çok kullanan firmaları -->
+        <!-- En Aktif Otobüs Firmaları -->
         <div class="col-12 col-lg-5">
-            <div class="row g-3 h-100">
-
-                <!-- Donut -->
-                <div class="col-12">
-                    <div class="card" style="padding:20px;">
-                        <div class="section-label mb-3">Kargo Durum Dağılımı</div>
-                        <div class="row g-0 align-items-center">
-                            <div class="col-5 d-flex justify-content-center">
-                                <canvas id="statusDonut" width="130" height="130"></canvas>
-                            </div>
-                            <div class="col-7">
-                                <div class="d-flex flex-column gap-2" style="font-size:.77rem;">
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <span><span style="display:inline-block;width:8px;height:8px;background:#0e8045;border-radius:2px;margin-right:5px;"></span>Teslim Edildi</span>
-                                        <span style="font-weight:700;">58%</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <span><span style="display:inline-block;width:8px;height:8px;background:#1b84ff;border-radius:2px;margin-right:5px;"></span>Yolda</span>
-                                        <span style="font-weight:700;">22%</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <span><span style="display:inline-block;width:8px;height:8px;background:#e08b00;border-radius:2px;margin-right:5px;"></span>Emanette</span>
-                                        <span style="font-weight:700;">14%</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <span><span style="display:inline-block;width:8px;height:8px;background:#c03060;border-radius:2px;margin-right:5px;"></span>Bekliyor</span>
-                                        <span style="font-weight:700;">6%</span>
-                                    </div>
-                                </div>
-                            </div>
+            <div class="card" style="padding:20px;height:100%;">
+                <div class="section-label mb-3">Otobüs Firmaları</div>
+                <div class="d-flex flex-column gap-2">
+                    <?php
+                    $firmColors = ['#1b84ff', '#0e8045', '#8e24aa', '#e08b00', '#c03060'];
+                    foreach ($busCompanies as $i => $f):
+                        $pct = $maxTrips > 0 ? (int)($f['trip_count'] / $maxTrips * 100) : 0;
+                    ?>
+                    <div>
+                        <div class="d-flex justify-content-between mb-1" style="font-size:.77rem;">
+                            <span><?= htmlspecialchars($f['name']) ?></span>
+                            <span style="font-weight:600;"><?= $f['trip_count'] ?> sefer · %<?= $f['commission_rate'] ?> komisyon</span>
+                        </div>
+                        <div style="height:5px;background:var(--border-color);border-radius:3px;overflow:hidden;">
+                            <div style="height:5px;width:<?= $pct ?>%;background:<?= $firmColors[$i % 5] ?>;border-radius:3px;"></div>
                         </div>
                     </div>
+                    <?php endforeach; ?>
                 </div>
-
-                <!-- En Aktif Otobüs Firmaları -->
-                <div class="col-12">
-                    <div class="card" style="padding:20px;">
-                        <div class="section-label mb-3">En Aktif Otobüs Firmaları</div>
-                        <div class="d-flex flex-column gap-2">
-                            <?php
-                            $firms = [
-                                ['name' => 'Metro Turizm', 'trips' => 184, 'pct' => 92],
-                                ['name' => 'Pamukkale', 'trips' => 141, 'pct' => 71],
-                                ['name' => 'Kamil Koç', 'trips' => 118, 'pct' => 59],
-                                ['name' => 'Uludağ Turizm', 'trips' => 96, 'pct' => 48],
-                                ['name' => 'Varan Turizm', 'trips' => 74, 'pct' => 37],
-                            ];
-                            $firmColors = ['#1b84ff', '#0e8045', '#8e24aa', '#e08b00', '#c03060'];
-                            foreach ($firms as $i => $f):
-                                ?>
-                                <div>
-                                    <div class="d-flex justify-content-between mb-1" style="font-size:.77rem;">
-                                        <span><?= $f['name'] ?></span>
-                                        <span style="font-weight:600;"><?= $f['trips'] ?> sefer</span>
-                                    </div>
-                                    <div style="height:5px;background:var(--border-color);border-radius:3px;overflow:hidden;">
-                                        <div style="height:5px;width:<?= $f['pct'] ?>%;background:<?= $firmColors[$i] ?>;border-radius:3px;"></div>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-
             </div>
         </div>
 
     </div><!-- /row 3 -->
 
-    <!-- ══ ROW 4 — Son Sistem İşlemleri + Aktif Kullanıcılar ══ -->
+    <!-- ══ ROW 4 — Son İşlemler + Uyarılar & Kullanıcılar ══ -->
     <div class="row g-3">
 
         <!-- Son İşlemler -->
@@ -321,14 +392,13 @@ $todayDate = date('d.m.Y');
                         <div class="section-label">Son Finansal İşlemler</div>
                         <div class="section-sub">Tüm şubeler — gerçek zamanlı</div>
                     </div>
-                    <a href="?page=transactions" class="btn-outline-secondary-sm" style="font-size:.76rem;">Tümü</a>
+                    <a href="?page=vault" class="btn-outline-secondary-sm" style="font-size:.76rem;">Tümü</a>
                 </div>
                 <div class="table-responsive">
                     <table class="orders-table">
                         <thead>
                             <tr>
                                 <th>Saat</th>
-                                <th>Şube</th>
                                 <th>Açıklama</th>
                                 <th>Yöntem</th>
                                 <th>Tip</th>
@@ -336,67 +406,72 @@ $todayDate = date('d.m.Y');
                             </tr>
                         </thead>
                         <tbody>
-                            <?php
-                            $txs = [
-                                ['time' => '11:32', 'branch' => 'İstanbul', 'desc' => 'Kargo Ücreti TRK-001', 'method' => 'Nakit', 'type' => 'IN', 'amount' => 85.00],
-                                ['time' => '11:28', 'branch' => 'Ankara', 'desc' => 'Kargo Ücreti TRK-002', 'method' => 'Kart', 'type' => 'IN', 'amount' => 120.00],
-                                ['time' => '11:14', 'branch' => 'İzmir', 'desc' => 'Otobüse Ödeme Metro', 'method' => 'Nakit', 'type' => 'OUT', 'amount' => 940.00],
-                                ['time' => '10:58', 'branch' => 'Bursa', 'desc' => 'Emanet Ücreti', 'method' => 'Nakit', 'type' => 'IN', 'amount' => 44.00],
-                                ['time' => '10:45', 'branch' => 'Antalya', 'desc' => 'Kargo Ücreti TRK-003', 'method' => 'Kart', 'type' => 'IN', 'amount' => 76.00],
-                                ['time' => '10:30', 'branch' => 'İstanbul', 'desc' => 'Gider – Kırtasiye', 'method' => 'Nakit', 'type' => 'OUT', 'amount' => 60.00],
-                            ];
-                            foreach ($txs as $tx):
+                            <?php if (empty($recentTx)): ?>
+                            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);font-size:.82rem;padding:20px;">Henüz işlem kaydı yok</td></tr>
+                            <?php else: ?>
+                            <?php foreach ($recentTx as $tx):
                                 $typeHtml = $tx['type'] === 'IN'
                                     ? '<span class="status-badge" style="background:#e7f9f0;color:#0e8045;font-size:.7rem;"><i class="bi bi-arrow-down-left me-1"></i>Gelir</span>'
                                     : '<span class="status-badge" style="background:#fff0f2;color:#c03060;font-size:.7rem;"><i class="bi bi-arrow-up-right me-1"></i>Gider</span>';
-                                $methodHtml = $tx['method'] === 'Nakit'
-                                    ? '<span class="status-badge" style="background:#fff8ec;color:#e08b00;font-size:.7rem;">Nakit</span>'
-                                    : '<span class="status-badge" style="background:#e8f1ff;color:#1b84ff;font-size:.7rem;">Kart</span>';
+                                $methodHtml = match($tx['method'] ?? '') {
+                                    'CASH' => '<span class="status-badge" style="background:#fff8ec;color:#e08b00;font-size:.7rem;">Nakit</span>',
+                                    'CARD' => '<span class="status-badge" style="background:#e8f1ff;color:#1b84ff;font-size:.7rem;">Kart</span>',
+                                    default => '<span class="status-badge" style="background:#f5f5f5;color:#666;font-size:.7rem;">' . htmlspecialchars($tx['method'] ?? '-') . '</span>',
+                                };
                                 $amtColor = $tx['type'] === 'IN' ? '#0e8045' : '#c03060';
-                                $amtSign = $tx['type'] === 'IN' ? '+' : '−';
-                                ?>
+                                $amtSign  = $tx['type'] === 'IN' ? '+' : '−';
+                            ?>
                                 <tr>
-                                    <td style="font-size:.77rem;color:var(--text-muted);"><?= $tx['time'] ?></td>
-                                    <td style="font-size:.78rem;"><?= $tx['branch'] ?></td>
-                                    <td style="font-size:.8rem;"><?= $tx['desc'] ?></td>
+                                    <td style="font-size:.77rem;color:var(--text-muted);"><?= date('H:i', strtotime($tx['created_at'])) ?></td>
+                                    <td style="font-size:.8rem;"><?= htmlspecialchars($tx['description'] ?? '-') ?></td>
                                     <td><?= $methodHtml ?></td>
                                     <td><?= $typeHtml ?></td>
-                                    <td style="font-weight:700;font-size:.84rem;color:<?= $amtColor ?>;"><?= $amtSign ?>₺<?= number_format($tx['amount'], 2) ?></td>
+                                    <td style="font-weight:700;font-size:.84rem;color:<?= $amtColor ?>;"><?= $amtSign ?>₺<?= number_format((float)$tx['amount'], 2, ',', '.') ?></td>
                                 </tr>
                             <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
 
-        <!-- Sağ kolon: Aktif Kullanıcılar + Uyarılar -->
+        <!-- Sağ kolon: Uyarılar + Kullanıcılar -->
         <div class="col-12 col-lg-5">
 
             <!-- Sistem Uyarıları -->
             <div class="card mb-3" style="padding:20px;">
                 <div class="section-label mb-3">⚠️ Sistem Uyarıları</div>
                 <div class="d-flex flex-column gap-2">
-                    <div style="padding:10px 12px;background:#fff0f2;border-radius:6px;font-size:.78rem;border-left:3px solid #c03060;">
-                        <div style="font-weight:700;color:#c03060;">Cari Limit Aşımı</div>
-                        <div style="color:var(--text-muted);margin-top:2px;">Karadeniz Taşıma A.Ş. — ₺6.800 / ₺6.000</div>
+                    <?php if (empty($overLimitAccounts) && (int)($storStats['critical_count'] ?? 0) === 0 && $pendingBranches === 0): ?>
+                    <div style="padding:10px 12px;background:#e7f9f0;border-radius:6px;font-size:.78rem;border-left:3px solid #0e8045;">
+                        <div style="font-weight:700;color:#0e8045;">Herşey Yolunda</div>
+                        <div style="color:var(--text-muted);margin-top:2px;">Şu anda aktif uyarı yok.</div>
                     </div>
-                    <div style="padding:10px 12px;background:#fff0f2;border-radius:6px;font-size:.78rem;border-left:3px solid #c03060;">
-                        <div style="font-weight:700;color:#c03060;">Cari Limit Aşımı</div>
-                        <div style="color:var(--text-muted);margin-top:2px;">Yıldız Tekstil A.Ş. — ₺5.100 / ₺5.000</div>
-                    </div>
-                    <div style="padding:10px 12px;background:#fff8ec;border-radius:6px;font-size:.78rem;border-left:3px solid #e08b00;">
-                        <div style="font-weight:700;color:#e08b00;">Emanet Süresi Dolmak Üzere</div>
-                        <div style="color:var(--text-muted);margin-top:2px;">Ankara — 4 kargo 24 saat dolacak</div>
-                    </div>
-                    <div style="padding:10px 12px;background:#e8f1ff;border-radius:6px;font-size:.78rem;border-left:3px solid #1b84ff;">
-                        <div style="font-weight:700;color:#1b84ff;">Yeni Şube Başvurusu</div>
-                        <div style="color:var(--text-muted);margin-top:2px;">Gaziantep Bayi — onay bekliyor</div>
-                    </div>
+                    <?php else: ?>
+                        <?php foreach (array_slice($overLimitAccounts, 0, 2) as $ol): ?>
+                        <div style="padding:10px 12px;background:#fff0f2;border-radius:6px;font-size:.78rem;border-left:3px solid #c03060;">
+                            <div style="font-weight:700;color:#c03060;">Cari Limit Aşımı</div>
+                            <div style="color:var(--text-muted);margin-top:2px;"><?= htmlspecialchars($ol['name']) ?> — ₺<?= number_format((float)$ol['balance'], 0, ',', '.') ?> / ₺<?= number_format((float)$ol['credit_limit'], 0, ',', '.') ?></div>
+                        </div>
+                        <?php endforeach; ?>
+                        <?php if ((int)($storStats['critical_count'] ?? 0) > 0): ?>
+                        <div style="padding:10px 12px;background:#fff8ec;border-radius:6px;font-size:.78rem;border-left:3px solid #e08b00;">
+                            <div style="font-weight:700;color:#e08b00;">Emanet Süresi Kritik</div>
+                            <div style="color:var(--text-muted);margin-top:2px;"><?= (int)$storStats['critical_count'] ?> eşya 24+ saat depoda</div>
+                        </div>
+                        <?php endif; ?>
+                        <?php if ($pendingBranches > 0): ?>
+                        <div style="padding:10px 12px;background:#e8f1ff;border-radius:6px;font-size:.78rem;border-left:3px solid #1b84ff;">
+                            <div style="font-weight:700;color:#1b84ff;">Yeni Şube Başvurusu</div>
+                            <div style="color:var(--text-muted);margin-top:2px;"><?= $pendingBranches ?> şube onay bekliyor</div>
+                        </div>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Son Eklenen Kullanıcılar -->
+            <!-- Son Kullanıcılar -->
             <div class="card" style="padding:20px;">
                 <div class="d-flex align-items-center justify-content-between mb-3">
                     <div class="section-label">Son Kullanıcılar</div>
@@ -404,24 +479,22 @@ $todayDate = date('d.m.Y');
                 </div>
                 <div class="d-flex flex-column gap-3">
                     <?php
-                    $users = [
-                        ['name' => 'Mehmet Kara', 'role' => 'Şube Müdürü', 'branch' => 'İstanbul', 'time' => '1 sa önce'],
-                        ['name' => 'Ayşe Yıldız', 'role' => 'Personel', 'branch' => 'Ankara', 'time' => '3 sa önce'],
-                        ['name' => 'Hasan Demir', 'role' => 'Bölge Müdürü', 'branch' => 'İzmir', 'time' => 'Dün'],
-                        ['name' => 'Caner Güneş', 'role' => 'Personel', 'branch' => 'Bursa', 'time' => 'Dün'],
-                    ];
                     $initColors = ['#1b84ff', '#0e8045', '#8e24aa', '#e08b00'];
-                    foreach ($users as $i => $u):
-                        ?>
+                    $roleLabels = [
+                        'admin' => 'Süper Admin', 'accountant' => 'Muhasebe',
+                        'region_manager' => 'Bölge Müdürü', 'branch_manager' => 'Şube Müdürü',
+                        'branch_staff' => 'Personel', 'courier' => 'Kurye',
+                    ];
+                    foreach ($recentUsers as $i => $u):
+                    ?>
                         <div class="d-flex align-items-center gap-2">
-                            <div style="width:32px;height:32px;border-radius:50%;background:<?= $initColors[$i] ?>;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                                <span style="color:#fff;font-size:.72rem;font-weight:700;"><?= mb_strtoupper(mb_substr($u['name'], 0, 1)) ?></span>
+                            <div style="width:32px;height:32px;border-radius:50%;background:<?= $initColors[$i % 4] ?>;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <span style="color:#fff;font-size:.72rem;font-weight:700;"><?= mb_strtoupper(mb_substr($u['full_name'] ?? 'U', 0, 1)) ?></span>
                             </div>
                             <div style="flex:1;overflow:hidden;">
-                                <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?= $u['name'] ?></div>
-                                <div style="font-size:.71rem;color:var(--text-muted);"><?= $u['role'] ?> · <?= $u['branch'] ?></div>
+                                <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?= htmlspecialchars($u['full_name'] ?? $u['username']) ?></div>
+                                <div style="font-size:.71rem;color:var(--text-muted);"><?= $roleLabels[$u['role']] ?? $u['role'] ?> · <?= htmlspecialchars($u['branch_name'] ?? '-') ?></div>
                             </div>
-                            <div style="font-size:.7rem;color:var(--text-muted);white-space:nowrap;"><?= $u['time'] ?></div>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -434,74 +507,3 @@ $todayDate = date('d.m.Y');
 </div><!-- /body -->
 
 </main>
-
-<script>
-window.addEventListener('DOMContentLoaded', function () {
-
-    /* ── Günlük Gelir Alan Grafiği ── */
-    var labels = ['11 Şub','12 Şub','13 Şub','14 Şub','15 Şub','16 Şub',
-                  '17 Şub','18 Şub','19 Şub','20 Şub','21 Şub','22 Şub','23 Şub','Bugün'];
-    var rc = document.getElementById('revenueChart').getContext('2d');
-    new Chart(rc, {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: 'Nakit',
-                    data: [12400,11800,13200,10900,14500,13800,15200,16100,14800,17300,16500,18200,17800,19400],
-                    backgroundColor: 'rgba(27,132,255,0.75)',
-                    borderRadius: 3,
-                    stack: 'stack'
-                },
-                {
-                    label: 'Kart',
-                    data: [5600,6200,5900,7100,6800,7500,7200,8100,7600,8900,8200,9400,8800,9600],
-                    backgroundColor: 'rgba(14,128,69,0.75)',
-                    borderRadius: 3,
-                    stack: 'stack'
-                },
-                {
-                    label: 'Cari',
-                    data: [2100,1800,2400,1600,2800,2200,3100,2600,2900,3400,3100,3700,3200,3800],
-                    backgroundColor: 'rgba(224,139,0,0.75)',
-                    borderRadius: 3,
-                    stack: 'stack'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 } } },
-                y: { stacked: true, grid: { color: 'rgba(0,0,0,.06)' }, ticks: { font: { size: 10 },
-                     callback: function(v){ return '₺' + (v/1000).toFixed(0) + 'K'; } } }
-            },
-            plugins: { legend: { display: false }, tooltip: {
-                callbacks: { label: function(c){ return c.dataset.label + ': ₺' + c.raw.toLocaleString('tr-TR'); } }
-            }}
-        }
-    });
-
-    /* ── Kargo Durum Donut ── */
-    var dc = document.getElementById('statusDonut').getContext('2d');
-    new Chart(dc, {
-        type: 'doughnut',
-        data: {
-            labels: ['Teslim Edildi','Yolda','Emanette','Bekliyor'],
-            datasets: [{
-                data: [58, 22, 14, 6],
-                backgroundColor: ['#0e8045','#1b84ff','#e08b00','#c03060'],
-                borderWidth: 0,
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            cutout: '70%',
-            plugins: { legend: { display: false },
-                tooltip: { callbacks: { label: function(c){ return c.label + ': %' + c.raw; } } }
-            }
-        }
-    });
-});
-</script>

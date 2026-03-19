@@ -94,10 +94,12 @@
                         <select id="receiverCity" class="form-input" required>
                             <option value="">Şehir seçin...</option>
                             <?php
-                            $cities = ['Adana', 'Adıyaman', 'Afyonkarahisar', 'Ağrı', 'Amasya', 'Ankara', 'Antalya', 'Artvin', 'Aydın', 'Balıkesir', 'Bilecik', 'Bingöl', 'Bitlis', 'Bolu', 'Burdur', 'Bursa', 'Çanakkale', 'Çankırı', 'Çorum', 'Denizli', 'Diyarbakır', 'Edirne', 'Elazığ', 'Erzincan', 'Erzurum', 'Eskişehir', 'Gaziantep', 'Giresun', 'Gümüşhane', 'Hakkari', 'Hatay', 'Isparta', 'İçel', 'İstanbul', 'İzmir', 'Kars', 'Kastamonu', 'Kayseri', 'Kırklareli', 'Kırşehir', 'Kocaeli', 'Konya', 'Kütahya', 'Malatya', 'Manisa', 'Kahramanmaraş', 'Mardin', 'Muğla', 'Muş', 'Nevşehir', 'Niğde', 'Ordu', 'Rize', 'Sakarya', 'Samsun', 'Siirt', 'Sinop', 'Sivas', 'Tekirdağ', 'Tokat', 'Trabzon', 'Tunceli', 'Şanlıurfa', 'Uşak', 'Van', 'Yozgat', 'Zonguldak', 'Aksaray', 'Bayburt', 'Karaman', 'Kırıkkale', 'Batman', 'Şırnak', 'Bartın', 'Ardahan', 'Iğdır', 'Yalova', 'Karabük', 'Kilis', 'Osmaniye', 'Düzce'];
-                            foreach ($cities as $c)
-                                echo "<option value=\"$c\">$c</option>\n";
+                            $base = new BaseModel();
+                            $dbCities = $base->query("SELECT city_id, name, plate_code FROM cities WHERE is_active = 1 ORDER BY name");
+                            foreach ($dbCities as $c):
                             ?>
+                            <option value="<?= $c['city_id'] ?>"><?= htmlspecialchars($c['name']) ?> (<?= $c['plate_code'] ?>)</option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="col-12">
@@ -404,27 +406,84 @@ function calculatePrice() {
 /* ── Kayıt & Barkod ── */
 function submitShipment(e) {
     e.preventDefault();
-    // TODO: AJAX ile backend'e gönder, takip no al, barkod penceresini aç
-    showToast('Kargo başarıyla kaydedildi! Barkod yazdırılıyor...', 'success');
+    var paymentTypeMap = {'sender': 'SENDER_PAYS', 'cod': 'RECEIVER_PAYS', 'account': 'ACCOUNT'};
+    var paymentMethodMap = {'cash': 'CASH', 'card': 'CARD', 'split': 'SPLIT'};
+    var paymentType = document.querySelector('input[name="paymentType"]:checked').value;
+
+    var data = {
+        sender_name:       document.getElementById('senderName').value,
+        sender_phone:      document.getElementById('senderPhone').value,
+        sender_tc_no:      document.getElementById('senderIdNo').value,
+        receiver_name:     document.getElementById('receiverName').value,
+        receiver_phone:    document.getElementById('receiverPhone').value,
+        receiver_tc_no:    document.getElementById('receiverIdNo').value,
+        destination_city_id: document.getElementById('receiverCity').value,
+        piece_count:       parseInt(document.getElementById('quantity').value) || 1,
+        weight:            parseFloat(document.getElementById('weight').value) || 0,
+        desi:              parseFloat(document.getElementById('desi').value) || 0,
+        content_description: document.getElementById('description').value,
+        cargo_fee:         parseFloat(document.getElementById('basePrice').textContent.replace('₺','')) || 0,
+        service_fee:       parseFloat(document.getElementById('extraPrice').textContent.replace('₺','')) || 0,
+        total_fee:         parseFloat(document.getElementById('totalPrice').textContent.replace('₺','')) || 0,
+        payment_type:      paymentTypeMap[paymentType] || 'SENDER_PAYS',
+        payment_method:    paymentMethodMap[selectedMethod] || 'CASH',
+        payment_status:    paymentType === 'sender' ? 'paid' : 'pending',
+        sms_notify:        document.getElementById('svc_sms').checked ? 1 : 0,
+        courier_pickup:    document.getElementById('svc_courier').checked ? 1 : 0,
+        vip_notify:        document.getElementById('svc_vip').checked ? 1 : 0,
+    };
+
+    fetch('api.php?action=shipments.create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            showToast('Kargo kaydedildi! Takip No: ' + res.shipment.tracking_no, 'success');
+            setTimeout(() => { window.location.href = '?page=shipment'; }, 2000);
+        } else {
+            showToast('Hata: ' + (res.error || 'Bilinmeyen hata'), 'error');
+        }
+    })
+    .catch(() => showToast('Sunucu hatası oluştu!', 'error'));
 }
 function saveOnly() {
-    showToast('Kargo kaydedildi.', 'success');
+    submitShipment(new Event('submit'));
 }
 function resetForm() {
+    document.getElementById('shipmentForm').reset();
     document.getElementById('basePrice').textContent  = '₺0.00';
     document.getElementById('extraPrice').textContent = '₺0.00';
     document.getElementById('totalPrice').textContent = '₺0.00';
 }
 
-/* ── Müşteri Otomatik Doldurma (mock) ── */
+/* ── Müşteri Otomatik Doldurma ── */
 function autoFillSender(val) {
     if (val.length === 11) {
-        /* TODO: AJAX lookup */
+        fetch('api.php?action=accounts.list&search=' + val)
+        .then(r => r.json())
+        .then(list => {
+            if (list.length > 0) {
+                document.getElementById('senderName').value = list[0].name || '';
+                document.getElementById('senderPhone').value = list[0].phone || '';
+                showToast('Kayıtlı müşteri bulundu!', 'success');
+            }
+        });
     }
 }
 function autoFillReceiver(val) {
     if (val.length === 11) {
-        /* TODO: AJAX lookup */
+        fetch('api.php?action=accounts.list&search=' + val)
+        .then(r => r.json())
+        .then(list => {
+            if (list.length > 0) {
+                document.getElementById('receiverName').value = list[0].name || '';
+                document.getElementById('receiverPhone').value = list[0].phone || '';
+                showToast('Kayıtlı alıcı bulundu!', 'success');
+            }
+        });
     }
 }
 
