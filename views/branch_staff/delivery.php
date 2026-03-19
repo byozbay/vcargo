@@ -49,11 +49,8 @@
                         </div>
                     </div>
                     <div style="font-size:.74rem;color:var(--text-muted);margin-top:8px;">
-                        <i class="bi bi-lightbulb me-1"></i>
-                        Hızlı test: <button class="btn-outline-secondary-sm" style="font-size:.72rem;padding:2px 8px;"
-                            onclick="quickLoad('TRK-240224-002')">TRK-240224-002 (Emanette)</button>
-                        <button class="btn-outline-secondary-sm ms-1" style="font-size:.72rem;padding:2px 8px;"
-                            onclick="quickLoad('TRK-240224-004')">TRK-240224-004 (C.O.D)</button>
+                        <i class="bi bi-info-circle me-1"></i>
+                        Barkod okuyucu ya da takip numarası ile sorgulayabilirsiniz.
                     </div>
                 </div>
 
@@ -336,85 +333,83 @@
     }
 </style>
 
-<script>
-    /* ── Mock Veri ── */
-    var mockShipments = {
-        'TRK-240224-002': {
-            trackNo: 'TRK-240224-002', status: 'emanette', statusLabel: 'Emanette',
-            sender: 'Fatma Kaya', senderCity: 'İstanbul',
-            receiver: 'Ayşe Çelik', receiverPhone: '0555 xxx xx xx',
-            city: 'İzmir', weight: '5 kg', price: 120,
-            cod: 0,
-            storageHours: 26, /* 26 saat emanette */
-            storageFreeHours: 4, /* 4 saat ücretsiz */
-            storageRatePerHour: 2 /* saatlik ücret */
-        },
-        'TRK-240224-004': {
-            trackNo: 'TRK-240224-004', status: 'emanette', statusLabel: 'Emanette',
-            sender: 'ABC Lojistik Ltd.', senderCity: 'İstanbul',
-            receiver: 'Caner Yıldız', receiverPhone: '0551 xxx xx xx',
-            city: 'Antalya', weight: '3 kg', price: 0, /* Cari — kargo bedeli 0 */
-            cod: 145, /* C.O.D tutarı */
-            storageHours: 2,
-            storageFreeHours: 4,
-            storageRatePerHour: 2
-        }
-    };
-
+    /* ── Gerçek Veri ── */
     var currentShipment = null;
     var deliveredList = [];
+    var selectedCollectionMethod = 'cash';
 
-    /* ── Kargo Yükle ── */
+    /* ── Kargo Yükle (API) ── */
     function loadShipment() {
         var val = document.getElementById('barcodeInput').value.trim().toUpperCase();
         if (!val) return;
 
-        var s = mockShipments[val] || null;
         document.getElementById('shipmentCard').style.display = 'none';
         document.getElementById('notFoundCard').style.display = 'none';
 
-        if (!s) { document.getElementById('notFoundCard').style.display = 'block'; return; }
+        fetch('api.php?action=shipments.list&search=' + encodeURIComponent(val))
+        .then(r => r.json())
+        .then(res => {
+            var list = res.data || [];
+            if (list.length === 0) { document.getElementById('notFoundCard').style.display = 'block'; return; }
+            var s = list[0];
+            if (s.status === 'delivered') { showToast('Bu kargo zaten teslim edilmiş!', 'warn'); return; }
 
-        currentShipment = s;
-        fillCard(s);
-        document.getElementById('shipmentCard').style.display = 'block';
-        document.getElementById('btnDeliver').disabled = false;
-        document.getElementById('btnLabel').disabled = false;
-        document.getElementById('btnReceipt').disabled = false;
-    }
+            /* Gerçek emanet süresi server'dan geliyor */
+            var storageHours = parseFloat(s.storage_hours) || 0;
+            var freeHours    = parseFloat(s.free_hours)    || 4;
+            var hourlyRate   = parseFloat(s.hourly_rate)   || 2;
 
-    function quickLoad(no) {
-        document.getElementById('barcodeInput').value = no;
-        loadShipment();
+            currentShipment = {
+                shipmentId:   s.shipment_id,
+                trackNo:      s.tracking_no,
+                status:       s.status,
+                statusLabel:  s.status === 'at_branch' ? 'Emanette' : (s.status === 'in_transit' ? 'Yolda' : s.status),
+                sender:       s.sender_name,
+                senderCity:   s.origin_city || '',
+                receiver:     s.receiver_name,
+                receiverPhone: s.receiver_phone,
+                city:         s.dest_city || '',
+                weight:       (s.weight || 0) + ' kg',
+                price:        parseFloat(s.total_fee) || 0,
+                cod:          s.payment_type === 'RECEIVER_PAYS' ? parseFloat(s.total_fee) || 0 : 0,
+                storageHours: storageHours,
+                storageFreeHours: freeHours,
+                storageRatePerHour: hourlyRate,
+            };
+
+            fillCard(currentShipment);
+            document.getElementById('shipmentCard').style.display = 'block';
+            document.getElementById('btnDeliver').disabled = false;
+            document.getElementById('btnLabel').disabled = false;
+            document.getElementById('btnReceipt').disabled = false;
+        })
+        .catch(() => showToast('Sunucu hatası!', 'error'));
     }
 
     /* ── Kartı Doldur ── */
     function fillCard(s) {
-        document.getElementById('sc-trackNo').textContent = s.trackNo;
-        document.getElementById('sc-sender').textContent = s.sender;
+        document.getElementById('sc-trackNo').textContent   = s.trackNo;
+        document.getElementById('sc-sender').textContent    = s.sender;
         document.getElementById('sc-senderCity').textContent = s.senderCity;
-        document.getElementById('sc-receiver').textContent = s.receiver;
+        document.getElementById('sc-receiver').textContent  = s.receiver;
         document.getElementById('sc-receiverPhone').textContent = s.receiverPhone;
-        document.getElementById('sc-city').textContent = s.city;
-        document.getElementById('sc-weight').textContent = s.weight;
-        document.getElementById('sc-price').textContent = '₺' + s.price.toFixed(2);
+        document.getElementById('sc-city').textContent      = s.city;
+        document.getElementById('sc-weight').textContent    = s.weight;
+        document.getElementById('sc-price').textContent     = '₺' + s.price.toFixed(2);
 
         var statusEl = document.getElementById('sc-status');
         statusEl.textContent = s.statusLabel;
-        statusEl.className = 'status-badge status-' + s.status;
+        statusEl.className = 'status-badge status-emanette';
 
-        /* Emanet ücreti hesapla */
-        var storageHours = Math.max(0, s.storageHours - s.storageFreeHours);
-        var storageFee = storageHours > 0 ? storageHours * s.storageRatePerHour : 0;
+        var paidHours  = Math.max(0, s.storageHours - s.storageFreeHours);
+        var storageFee = paidHours > 0 ? paidHours * s.storageRatePerHour : 0;
 
-        if (s.storageHours > s.storageFreeHours) {
+        if (paidHours > 0) {
             document.getElementById('storageWarning').style.display = 'block';
-            document.getElementById('storageMsg').textContent =
-                ' Kargo ' + s.storageHours + ' saattir emanette. ' + storageHours +
-                ' ücretli saat × ₺' + s.storageRatePerHour + ' = ₺' + storageFee.toFixed(2);
+            document.getElementById('storageMsg').textContent = ' Kargo ' + s.storageHours.toFixed(1) + ' saattir emanette. ' + paidHours.toFixed(1) + ' ücretli saat × ₺' + s.storageRatePerHour + ' = ₺' + storageFee.toFixed(2);
             document.getElementById('sum-storage-row').style.display = 'flex';
             document.getElementById('sum-storage').textContent = '₺' + storageFee.toFixed(2);
-            document.getElementById('sum-storageDur').textContent = '(' + storageHours + ' saat)';
+            document.getElementById('sum-storageDur').textContent = '(' + paidHours.toFixed(1) + ' saat)';
             document.getElementById('discountBlock').style.display = 'block';
         } else {
             document.getElementById('storageWarning').style.display = 'none';
@@ -422,11 +417,10 @@
             document.getElementById('discountBlock').style.display = 'none';
         }
 
-        /* C.O.D */
+        var cargoFeeToCollect = s.payment_type === 'RECEIVER_PAYS' ? s.price : 0;
         if (s.cod > 0) {
             document.getElementById('codWarning').style.display = 'block';
-            document.getElementById('codMsg').textContent =
-                ' Bu kargo kapıda ödemeli. Alıcıdan ₺' + s.cod.toFixed(2) + ' tahsil edilmesi gerekmektedir.';
+            document.getElementById('codMsg').textContent = ' Bu kargo kapıda ödemeli. Alıcıdan ₺' + s.cod.toFixed(2) + ' tahsil edilmesi gerekmektedir.';
             document.getElementById('sum-cod-row').style.display = 'flex';
             document.getElementById('sum-cod').textContent = '₺' + s.cod.toFixed(2);
         } else {
@@ -435,70 +429,89 @@
         }
 
         document.getElementById('sum-cargo').textContent = '₺' + s.price.toFixed(2);
-        var total = s.price + storageFee + s.cod;
+        var total = (s.cod > 0 ? s.cod : s.price) + storageFee;
         document.getElementById('sum-total').textContent = '₺' + total.toFixed(2);
+        currentShipment._storageFee = storageFee;
+        currentShipment._collectTotal = total;
     }
 
     /* ── İndirim Uygula ── */
     function applyDiscount() {
         if (!currentShipment) return;
-        var discount = parseFloat(document.getElementById('discountAmount').value) || 0;
-        var storageHours = Math.max(0, currentShipment.storageHours - currentShipment.storageFreeHours);
-        var storageFee = Math.max(0, storageHours * currentShipment.storageRatePerHour - discount);
-        var total = currentShipment.price + storageFee + currentShipment.cod;
+        var discount   = parseFloat(document.getElementById('discountAmount').value) || 0;
+        var paidHours  = Math.max(0, currentShipment.storageHours - currentShipment.storageFreeHours);
+        var storageFee = Math.max(0, paidHours * currentShipment.storageRatePerHour - discount);
+        var total      = (currentShipment.cod > 0 ? currentShipment.cod : currentShipment.price) + storageFee;
         document.getElementById('sum-storage').textContent = '₺' + storageFee.toFixed(2);
-        document.getElementById('sum-total').textContent = '₺' + total.toFixed(2);
+        document.getElementById('sum-total').textContent  = '₺' + total.toFixed(2);
+        currentShipment._storageFee    = storageFee;
+        currentShipment._collectTotal  = total;
     }
 
-    /* ── Müdür Onayı (mock) ── */
-    function requestManagerApproval() {
-        showToast('Müdür onay talebi gönderildi.', 'info');
-    }
+    function requestManagerApproval() { showToast('Müdür onay talebi gönderildi.', 'info'); }
 
-    /* ── Tahsilat Yöntemi ── */
     function selectCollection(m, el) {
+        selectedCollectionMethod = m;
         document.querySelectorAll('.method-btn').forEach(b => b.classList.remove('active'));
         el.classList.add('active');
         document.getElementById('splitBlock').style.display = (m === 'split') ? 'block' : 'none';
     }
 
-    /* ── Teslimi Onayla ── */
+    /* ── Teslimi Onayla → API ── */
     function confirmDelivery() {
         if (!currentShipment) return;
-        deliveredList.unshift(currentShipment);
-        renderRecentDeliveries();
 
-        showToast('✓ ' + currentShipment.trackNo + ' başarıyla teslim edildi!', 'success');
+        var discount = parseFloat(document.getElementById('discountAmount').value) || 0;
+        var payload  = {
+            shipment_id:      currentShipment.shipmentId,
+            storage_fee:      currentShipment._storageFee || 0,
+            storage_discount: discount,
+            collect_total:    currentShipment._collectTotal || 0,
+            payment_method:   selectedCollectionMethod.toUpperCase(),
+            delivery_note:    document.getElementById('deliveryNote').value,
+        };
 
-        /* Temizle */
-        currentShipment = null;
-        document.getElementById('barcodeInput').value = '';
-        document.getElementById('shipmentCard').style.display = 'none';
-        document.getElementById('btnDeliver').disabled = true;
-        document.getElementById('btnLabel').disabled = true;
-        document.getElementById('btnReceipt').disabled = true;
-        document.getElementById('barcodeInput').focus();
+        fetch('api.php?action=shipments.deliver', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast('✓ ' + currentShipment.trackNo + ' başarıyla teslim edildi!', 'success');
+                deliveredList.unshift(currentShipment);
+                renderRecentDeliveries();
+                currentShipment = null;
+                document.getElementById('barcodeInput').value = '';
+                document.getElementById('shipmentCard').style.display = 'none';
+                document.getElementById('btnDeliver').disabled = true;
+                document.getElementById('btnLabel').disabled   = true;
+                document.getElementById('btnReceipt').disabled = true;
+                document.getElementById('barcodeInput').focus();
+            } else {
+                showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+            }
+        })
+        .catch(() => showToast('Sunucu hatası!', 'error'));
     }
 
-    /* ── Son Teslimler ── */
     function renderRecentDeliveries() {
         var el = document.getElementById('recentDeliveries');
         el.innerHTML = deliveredList.slice(0, 6).map(function (s) {
             var now = new Date();
             return '<div class="d-flex align-items-center gap-2 mb-2">' +
-                '<div style="width:30px;height:30px;background:#e7f9f0;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
-                '<i class="bi bi-check2" style="color:#0e8045;font-size:.9rem;"></i>' +
-                '</div>' +
+                '<div style="width:30px;height:30px;background:#e7f9f0;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="bi bi-check2" style="color:#0e8045;font-size:.9rem;"></i></div>' +
                 '<div class="flex-grow-1">' +
                 '<div style="font-size:.79rem;font-weight:600;font-family:monospace;color:var(--accent-blue);">' + s.trackNo + '</div>' +
-                '<div style="font-size:.72rem;color:var(--text-muted);">' + s.receiver + ' · ' + now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) + '</div>' +
+                '<div style="font-size:.72rem;color:var(--text-muted);">' + s.receiver + ' · ' + now.toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit'}) + '</div>' +
                 '</div>' +
                 '<span class="status-badge status-teslim" style="font-size:.7rem;">Teslim</span>' +
                 '</div>';
         }).join('');
     }
 
-    function printLabel() { showToast('Barkod etiket gönderiliyor...', 'info'); }
+    function printLabel()   { showToast('Barkod etiket gönderiliyor...', 'info'); }
     function printReceipt() { showToast('Fiş yazdırılıyor...', 'info'); }
 
     /* ── Toast ── */

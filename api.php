@@ -279,6 +279,93 @@ try {
             ];
         })(),
 
+
+        /**
+         * trips.dispatch — create trip + assign shipments + vault OUT for driver payment
+         */
+        'trips.dispatch' => (function () use ($input, $branchId, $userId) {
+            $tm  = new TripModel();
+            $sm  = new ShipmentModel();
+            $tx  = new TransactionModel();
+            $dbh = new Database();
+            $pdo = $dbh->connect();
+            $pdo->beginTransaction();
+            try {
+                $tripData = [
+                    'branch_id'       => $branchId,
+                    'created_by'      => $userId,
+                    'company_id'      => (int)   ($input['company_id'] ?? 0),
+                    'plate_no'        => $input['plate_no'] ?? '',
+                    'driver_name'     => $input['driver_name'] ?? '',
+                    'driver_phone'    => $input['driver_phone'] ?? '',
+                    'departure_time'  => $input['departure_time'] ?? date('Y-m-d H:i:s'),
+                    'commission_rate' => (float) ($input['commission_rate'] ?? 0),
+                    'total_cargo_fee' => (float) ($input['total_cargo_fee'] ?? 0),
+                    'net_payment'     => (float) ($input['net_payment'] ?? 0),
+                    'status'          => 'departed',
+                ];
+                $tripId = $tm->createTrip($tripData);
+                foreach (($input['shipment_ids'] ?? []) as $sid) {
+                    $sid = (int) $sid;
+                    if ($sid > 0) $sm->update($sid, ['trip_id' => $tripId, 'status' => 'in_transit']);
+                }
+                if ($tripData['net_payment'] > 0) {
+                    $tx->record([
+                        'type' => 'OUT', 'category' => 'driver_payment',
+                        'method' => $input['pay_method'] ?? 'CASH',
+                        'amount' => $tripData['net_payment'],
+                        'description' => 'Şoför Ödemesi – ' . $tripData['plate_no'],
+                        'trip_id' => $tripId, 'branch_id' => $branchId, 'created_by' => $userId,
+                    ]);
+                }
+                AuditModel::log('trip.dispatch', 'trip', $tripId);
+                $pdo->commit();
+                return ['success' => true, 'trip_id' => $tripId, 'dispatched' => count($input['shipment_ids'] ?? [])];
+            } catch (\Exception $e) { $pdo->rollBack(); throw $e; }
+        })(),
+
+        /**
+         * shipments.deliver — mark delivered + vault IN for C.O.D at delivery + storage fee
+         * C.O.D muhasebe kuralı: kasa kaydı yalnızca teslim anında açılır!
+         */
+        'shipments.deliver' => (function () use ($input, $branchId, $userId) {
+            $sm  = new ShipmentModel();
+            $tx  = new TransactionModel();
+            $dbh = new Database();
+            $pdo = $dbh->connect();
+            $shipmentId = (int)   ($input['shipment_id'] ?? 0);
+            $storageFee = (float) ($input['storage_fee'] ?? 0);
+            $method     = $input['payment_method'] ?? 'CASH';
+            $pdo->beginTransaction();
+            try {
+                $shipment = $sm->find($shipmentId);
+                if (!$shipment) throw new \Exception('Kargo bulunamadı.');
+                $sm->update($shipmentId, [
+                    'status' => 'delivered', 'payment_status' => 'paid',
+                    'delivered_at' => date('Y-m-d H:i:s'),
+                    'delivery_note' => $input['delivery_note'] ?? null,
+                ]);
+                if ($shipment['payment_type'] === 'RECEIVER_PAYS' && (float)$shipment['total_fee'] > 0) {
+                    $tx->record([
+                        'type' => 'IN', 'category' => 'cargo_fee_cod', 'method' => $method,
+                        'amount' => (float) $shipment['total_fee'],
+                        'description' => 'C.O.D Tahsilat – ' . $shipment['tracking_no'],
+                        'shipment_id' => $shipmentId, 'branch_id' => $branchId, 'created_by' => $userId,
+                    ]);
+                }
+                if ($storageFee > 0) {
+                    $tx->record([
+                        'type' => 'IN', 'category' => 'storage_fee', 'method' => $method,
+                        'amount' => $storageFee,
+                        'description' => 'Emanet Ücreti – ' . $shipment['tracking_no'],
+                        'shipment_id' => $shipmentId, 'branch_id' => $branchId, 'created_by' => $userId,
+                    ]);
+                }
+                AuditModel::log('shipment.deliver', 'shipment', $shipmentId);
+                $pdo->commit();
+                return ['success' => true, 'shipment_id' => $shipmentId];
+            } catch (\Exception $e) { $pdo->rollBack(); throw $e; }
+        })(),
         default => throw new \Exception("Bilinmeyen işlem: {$action}"),
     };
 

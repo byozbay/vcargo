@@ -38,14 +38,18 @@
                     <div class="row g-3">
                         <div class="col-12 col-md-6">
                             <label class="form-label-sm">Otobüs Firması <span style="color:#f31260;">*</span></label>
-                            <select id="busCompany" class="form-input" onchange="onCompanyChange()">
-                                <option value="">Firma seçin...</option>
-                                <option value="metro">Metro Turizm</option>
-                                <option value="pamukkale">Pamukkale Turizm</option>
-                                <option value="uludag">Uludağ Turizm</option>
-                                <option value="kamil">Kamil Koç</option>
-                                <option value="obilet">OBİLET / Varan</option>
-                            </select>
+                        <select id="busCompany" class="form-input" onchange="onCompanyChange()">
+                            <option value="">Firma seçin...</option>
+                            <?php
+                            $base = new BaseModel();
+                            $dbBus = $base->query('SELECT company_id, name, commission_rate FROM bus_companies WHERE is_active = 1 ORDER BY name');
+                            foreach ($dbBus as $b):
+                            ?>
+                            <option value="<?= $b['company_id'] ?>" data-comm="<?= $b['commission_rate'] ?>">
+                                <?= htmlspecialchars($b['name']) ?> (%<?= $b['commission_rate'] ?>)
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="form-label-sm">Plaka <span style="color:#f31260;">*</span></label>
@@ -205,35 +209,46 @@
                     </div>
                     <div class="d-flex flex-column gap-2">
                         <?php
-                        $activeBuses = [
-                            ['plate' => '34 ABC 001', 'company' => 'Metro Turizm', 'route' => 'Ankara', 'time' => '08:00', 'count' => 12],
-                            ['plate' => '35 XY 002', 'company' => 'Pamukkale', 'route' => 'İzmir', 'time' => '10:30', 'count' => 8],
-                            ['plate' => '06 KA 777', 'company' => 'Uludağ Turizm', 'route' => 'Bursa', 'time' => '15:00', 'count' => 5],
-                        ];
-                        foreach ($activeBuses as $bus): ?>
+                        $base = new BaseModel();
+                        $today = date('Y-m-d');
+                        $activeTrips = $base->query(
+                            "SELECT t.trip_id, t.plate_no, t.departure_time, t.commission_rate,
+                                    b.name AS company_name,
+                                    (SELECT COUNT(*) FROM shipments WHERE trip_id = t.trip_id) AS kargo_count
+                             FROM trips t
+                             LEFT JOIN bus_companies b ON t.company_id = b.company_id
+                             WHERE DATE(t.departure_time) = ? AND t.is_active = 1
+                             ORDER BY t.departure_time",
+                            [$today]
+                        );
+                        if (empty($activeTrips)): ?>
+                            <div style="font-size:.78rem;color:var(--text-muted);text-align:center;padding:16px 0;opacity:.6;">
+                                <i class="bi bi-bus-front" style="font-size:1.4rem;display:block;margin-bottom:6px;"></i>
+                                Bugün kaydedilmiş sefer yok
+                            </div>
+                        <?php else:
+                        foreach ($activeTrips as $bus): ?>
                             <div class="d-flex align-items-center gap-2 p-2"
                                 style="border:1px solid var(--border-color);border-radius:7px;cursor:pointer;"
-                                onclick="fillBus('<?= $bus['plate'] ?>', '<?= $bus['company'] ?>', '<?= $bus['time'] ?>')"
+                                onclick="fillBus('<?= $bus['trip_id'] ?>', '<?= htmlspecialchars($bus['plate_no']) ?>', '<?= substr($bus['departure_time'],11,5) ?>', <?= $bus['commission_rate'] ?>)"
                                 onmouseover="this.style.background='var(--body-bg)'" onmouseout="this.style.background=''">
-                                <div
-                                    style="width:34px;height:34px;background:#e8f1ff;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <div style="width:34px;height:34px;background:#e8f1ff;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                     <i class="bi bi-bus-front" style="color:#1b84ff;font-size:.9rem;"></i>
                                 </div>
                                 <div class="flex-grow-1">
                                     <div style="font-size:.8rem;font-weight:600;">
-                                        <?= $bus['plate'] ?> →
-                                        <?= $bus['route'] ?>
+                                        <?= htmlspecialchars($bus['plate_no']) ?> → <?= substr($bus['departure_time'],11,5) ?>
                                     </div>
                                     <div style="font-size:.72rem;color:var(--text-muted);">
-                                        <?= $bus['company'] ?> ·
-                                        <?= $bus['time'] ?>
+                                        <?= htmlspecialchars($bus['company_name']) ?> · %<?= $bus['commission_rate'] ?> kom.
                                     </div>
                                 </div>
                                 <span class="status-badge" style="background:#e8f1ff;color:#1b84ff;font-size:.7rem;">
-                                    <?= $bus['count'] ?> kargo
+                                    <?= $bus['kargo_count'] ?> kargo
                                 </span>
                             </div>
-                        <?php endforeach; ?>
+                        <?php endforeach; endif; ?>
+
                     </div>
                 </div>
 
@@ -331,41 +346,56 @@
 </style>
 
 <script>
-    /* ── Mock kargo verisi ── */
-    var mockShipments = {
-        'TRK-240224-001': { receiver: 'Ahmet Yılmaz', city: 'Ankara', price: 85 },
-        'TRK-240224-002': { receiver: 'Fatma Kaya', city: 'İzmir', price: 120 },
-        'TRK-240224-003': { receiver: 'Ali Öztürk', city: 'Bursa', price: 65 },
-        'TRK-240224-004': { receiver: 'ABC Lojistik', city: 'Antalya', price: 145 },
-        'TRK-240224-005': { receiver: 'Kemal Şahin', city: 'Konya', price: 95 },
-        'TRK-240224-006': { receiver: 'Meral Güneş', city: 'Adana', price: 110 },
-    };
+    var dispatchList = [];
+    var selectedPayMethod = 'cash';
+    var selectedTripId = null;
 
-    var dispatchList = []; /* { trackNo, receiver, city, price } */
+    /* ── Firma değişince komisyon güncelle ── */
+    function onCompanyChange() {
+        var sel = document.getElementById('busCompany');
+        var opt = sel.options[sel.selectedIndex];
+        if (opt && opt.dataset.comm) {
+            document.getElementById('commissionRate').value = opt.dataset.comm;
+            recalcAll();
+        }
+    }
 
-    /* ── Kargo Ekle ── */
+    /* ── Kargo Ekle (API'den) ── */
     function addShipment() {
         var val = document.getElementById('barcodeInput').value.trim().toUpperCase();
         if (!val) return;
+        if (dispatchList.find(x => x.trackNo === val)) { showToast('Bu kargo zaten listede!', 'warn'); return; }
 
-        if (dispatchList.find(x => x.trackNo === val)) {
-            showToast('Bu kargo zaten listede!', 'warn'); return;
-        }
-        var s = mockShipments[val];
-        if (!s) {
-            showToast('Kargo bulunamadı: ' + val, 'error'); return;
-        }
-        dispatchList.push({ trackNo: val, ...s });
-        document.getElementById('barcodeInput').value = '';
-        renderDispatchTable();
+        fetch('api.php?action=shipments.list&search=' + encodeURIComponent(val))
+        .then(r => r.json())
+        .then(res => {
+            var list = res.data || [];
+            if (list.length === 0) { showToast('Kargo bulunamadı: ' + val, 'error'); return; }
+            var s = list[0];
+            if (s.status === 'delivered') { showToast('Bu kargo zaten teslim edilmiş!', 'warn'); return; }
+            dispatchList.push({ trackNo: s.tracking_no, shipmentId: s.shipment_id, receiver: s.receiver_name, city: s.dest_city || '-', price: parseFloat(s.total_fee) || 0 });
+            document.getElementById('barcodeInput').value = '';
+            renderDispatchTable(); recalcAll();
+            showToast(s.tracking_no + ' listeye eklendi.', 'success');
+        })
+        .catch(() => showToast('Sunucu hatası!', 'error'));
+    }
+
+    /* ── Aktif Seferden Doldur ── */
+    function fillBus(tripId, plate, time, comm) {
+        selectedTripId = tripId;
+        document.getElementById('busPlate').value = plate;
+        document.getElementById('departureTime').value = time;
+        document.getElementById('commissionRate').value = comm;
         recalcAll();
+        showToast(plate + ' seferi seçildi.', 'success');
     }
 
     /* ── Tabloyu Yenile ── */
     function renderDispatchTable() {
         var body = document.getElementById('dispatchBody');
         if (dispatchList.length === 0) {
-            body.innerHTML = '<tr id="emptyRow"><td colspan="7" class="text-center" style="padding:32px;color:var(--text-muted);font-size:.82rem;"><i class="bi bi-inbox" style="font-size:1.8rem;display:block;margin-bottom:8px;opacity:.4;"></i>Henüz kargo eklenmedi.</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:32px;color:var(--text-muted);font-size:.82rem;"><i class="bi bi-inbox" style="font-size:1.8rem;display:block;margin-bottom:8px;opacity:.4;"></i>Henüz kargo eklenmedi.</td></tr>';
             document.getElementById('shipmentCountLabel').textContent = '0 kargo eklendi';
             return;
         }
@@ -373,7 +403,7 @@
         body.innerHTML = dispatchList.map(function (s, i) {
             var net = (s.price * (1 - comm / 100)).toFixed(2);
             return '<tr>' +
-                '<td style="font-size:.78rem;color:var(--text-muted);">' + (i + 1) + '</td>' +
+                '<td style="font-size:.78rem;color:var(--text-muted);">' + (i+1) + '</td>' +
                 '<td><span style="font-family:monospace;font-size:.79rem;color:var(--accent-blue);font-weight:600;">' + s.trackNo + '</span></td>' +
                 '<td><div style="font-size:.81rem;font-weight:500;">' + s.receiver + '</div></td>' +
                 '<td style="font-size:.81rem;">' + s.city + '</td>' +
@@ -385,76 +415,84 @@
         document.getElementById('shipmentCountLabel').textContent = dispatchList.length + ' kargo eklendi';
     }
 
-    /* ── Kargo Kaldır ── */
-    function removeShipment(idx) {
-        dispatchList.splice(idx, 1);
-        renderDispatchTable();
-        recalcAll();
-    }
-
-    /* ── Listeyi Temizle ── */
+    function removeShipment(idx) { dispatchList.splice(idx, 1); renderDispatchTable(); recalcAll(); }
     function clearList() {
         if (dispatchList.length === 0) return;
         if (!confirm('Sevk listesi temizlensin mi?')) return;
-        dispatchList = [];
-        renderDispatchTable();
-        recalcAll();
+        dispatchList = []; renderDispatchTable(); recalcAll();
     }
 
-    /* ── Toplam Hesapla ── */
     function recalcAll() {
         var comm = parseFloat(document.getElementById('commissionRate').value) || 0;
         var total = dispatchList.reduce(function (s, x) { return s + x.price; }, 0);
         var commission = total * comm / 100;
         var net = total - commission;
-
         document.getElementById('sumCount').textContent = dispatchList.length;
         document.getElementById('sumTotal').textContent = '₺' + total.toFixed(2);
         document.getElementById('sumCommission').textContent = '-₺' + commission.toFixed(2);
         document.getElementById('sumNet').textContent = '₺' + net.toFixed(2);
-
-        /* komisyon oranı değişince tabloyu da yenile */
         if (dispatchList.length > 0) renderDispatchTable();
     }
 
-    /* ── Aktif Seferden Otomatik Doldur ── */
-    function fillBus(plate, company, time) {
-        document.getElementById('busPlate').value = plate;
-        document.getElementById('departureTime').value = time;
-        /* Firma eşleştir */
-        var map = { 'Metro Turizm': 'metro', 'Pamukkale': 'pamukkale', 'Uludağ Turizm': 'uludag' };
-        var sel = document.getElementById('busCompany');
-        for (var i = 0; i < sel.options.length; i++) {
-            if (sel.options[i].text === company) { sel.selectedIndex = i; break; }
-        }
-        showToast(plate + ' seferi seçildi.', 'success');
-    }
-
-    /* ── Sevki Onayla ── */
+    /* ── Sevki Onayla → API ── */
     function confirmDispatch() {
         if (dispatchList.length === 0) { showToast('Sevk listesi boş!', 'error'); return; }
-        if (!document.getElementById('busPlate').value) { showToast('Plaka giriniz!', 'error'); return; }
-        showToast(dispatchList.length + ' kargo başarıyla sevk edildi. Manifesto hazırlanıyor...', 'success');
-        /* TODO: AJAX */
+        var plate = document.getElementById('busPlate').value.trim();
+        if (!plate) { showToast('Plaka giriniz!', 'error'); return; }
+        var companyId = document.getElementById('busCompany').value;
+        if (!companyId) { showToast('Firma seçiniz!', 'error'); return; }
+
+        var comm  = parseFloat(document.getElementById('commissionRate').value) || 0;
+        var total = dispatchList.reduce(function (s, x) { return s + x.price; }, 0);
+
+        var payload = {
+            trip_id:         selectedTripId,
+            company_id:      companyId,
+            plate_no:        plate,
+            driver_name:     document.getElementById('driverName').value,
+            driver_phone:    document.getElementById('driverPhone').value,
+            departure_time:  new Date().toISOString().slice(0,10) + ' ' + document.getElementById('departureTime').value + ':00',
+            commission_rate: comm,
+            total_cargo_fee: total,
+            net_payment:     total * (1 - comm / 100),
+            pay_method:      selectedPayMethod.toUpperCase(),
+            shipment_ids:    dispatchList.map(x => x.shipmentId),
+        };
+
+        fetch('api.php?action=trips.dispatch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(dispatchList.length + ' kargo sevk edildi! Manifesto açılıyor...', 'success');
+                setTimeout(() => { window.location.href = '?page=manifest&trip_id=' + res.trip_id; }, 2000);
+            } else {
+                showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+            }
+        })
+        .catch(() => showToast('Sunucu hatası!', 'error'));
     }
 
-    /* ── Manifesto Bas ── */
+    /* ── Manifesto ── */
     function printManifest() {
         if (dispatchList.length === 0) { showToast('Manifesto için önce kargo ekleyin!', 'error'); return; }
-        window.print(); /* TODO: gerçek manifesto PDF */
+        window.open('?page=manifest', '_blank');
     }
 
-    /* ── Ödeme Yöntemi ── */
     function selectPay(m, el) {
+        selectedPayMethod = m;
         document.querySelectorAll('.method-btn').forEach(b => b.classList.remove('active'));
         el.classList.add('active');
     }
 
     /* ── Toast ── */
     function showToast(msg, type) {
-        var colors = { success: '#0e8045', error: '#c03060', warn: '#e08b00' };
+        var colors = { success: '#0e8045', error: '#c03060', warn: '#e08b00', info: '#1b84ff' };
         var t = document.createElement('div');
-        t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:.83rem;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.18);color:#fff;background:' + (colors[type] || '#333') + ';transition:opacity .3s;';
+        t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:.83rem;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.18);color:#fff;background:' + (colors[type] || '#333') + ';transition:opacity .3s;max-width:360px;';
         t.textContent = msg;
         document.body.appendChild(t);
         setTimeout(function () { t.style.opacity = '0'; setTimeout(function () { t.remove(); }, 300); }, 3200);
