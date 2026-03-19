@@ -92,12 +92,56 @@ class StorageModel extends BaseModel
 
         $sql = "SELECT
                     COUNT(*) as total_stored,
-                    SUM(CASE WHEN TIMESTAMPDIFF(HOUR, check_in, NOW()) > free_hours THEN 1 ELSE 0 END) AS paid_count,
-                    SUM(CASE WHEN TIMESTAMPDIFF(HOUR, check_in, NOW()) >= 24 THEN 1 ELSE 0 END) AS critical_count
+                    SUM(CASE WHEN TIMESTAMPDIFF(HOUR, checked_in_at, NOW()) > free_hours THEN 1 ELSE 0 END) AS paid_count,
+                    SUM(CASE WHEN TIMESTAMPDIFF(HOUR, checked_in_at, NOW()) >= 24 THEN 1 ELSE 0 END) AS critical_count
                 FROM storage_records
-                WHERE status = 'stored' AND is_active = 1 {$where}";
+                WHERE status = 'active' AND is_active = 1 {$where}";
 
         $row = $this->query($sql, $params);
         return $row[0] ?? ['total_stored' => 0, 'paid_count' => 0, 'critical_count' => 0];
+    }
+
+    /**
+     * Quick deliver a storage record from the API
+     * Calculates fee, marks delivered, records vault transaction
+     */
+    public function quickDeliver(int $storageId, int $branchId, int $userId, float $discount = 0, string $paymentMethod = 'CASH'): array
+    {
+        $record = $this->find($storageId);
+        if (!$record) throw new \Exception('Emanet kaydı bulunamadı.');
+        if ($record['status'] !== 'active') throw new \Exception('Bu kayıt zaten teslim edilmiş.');
+
+        $checkedIn = strtotime($record['checked_in_at']);
+        $freeH     = (float)($record['free_hours']  ?? 4);
+        $rate      = (float)($record['hourly_rate'] ?? 2);
+        $totalH    = max(0, (time() - $checkedIn) / 3600);
+        $paidH     = max(0, $totalH - $freeH);
+        $fee       = max(0, round($paidH * $rate - $discount, 2));
+        $now       = date('Y-m-d H:i:s');
+
+        $this->update($storageId, [
+            'checked_out_at'       => $now,
+            'total_fee'            => $fee,
+            'fee_discount'         => $discount,
+            'payment_method'       => $paymentMethod,
+            'status'               => 'delivered',
+        ]);
+
+        // Record vault transaction if fee > 0
+        if ($fee > 0) {
+            $tx = new TransactionModel();
+            $tx->record([
+                'type'       => 'IN',
+                'category'   => 'storage_fee',
+                'method'     => $paymentMethod,
+                'amount'     => $fee,
+                'description'=> 'Emanet Ücreti – ' . ($record['reference_code'] ?? $storageId),
+                'storage_id' => $storageId,
+                'branch_id'  => $branchId,
+                'created_by' => $userId,
+            ]);
+        }
+
+        return ['fee' => $fee, 'total_hours' => round($totalH, 2), 'paid_hours' => round($paidH, 2)];
     }
 }

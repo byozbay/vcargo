@@ -41,4 +41,30 @@ class BranchModel extends BaseModel
             "SELECT status, COUNT(*) as cnt FROM branches WHERE is_active = 1 GROUP BY status"
         );
     }
+
+    /** Find a single branch by ID with city/region info */
+    public function find(int $branchId): ?array
+    {
+        $rows = $this->query(
+            "SELECT b.*, c.name AS city_name, c.plate_code, r.name AS region_name
+             FROM branches b
+             LEFT JOIN cities c ON c.city_id = b.city_id
+             LEFT JOIN regions r ON r.region_id = b.region_id
+             WHERE b.branch_id = ? LIMIT 1",
+            [$branchId]
+        );
+        return $rows[0] ?? null;
+    }
+
+    /** Get all branches (active + inactive) with city name */
+    public function getAll(): array
+    {
+        return $this->query(
+            "SELECT b.*, c.name AS city_name, c.plate_code, r.name AS region_name
+             FROM branches b
+             LEFT JOIN cities c ON c.city_id = b.city_id
+             LEFT JOIN regions r ON r.region_id = b.region_id
+             ORDER BY b.is_active DESC, b.name"
+        );
+    }
 }

@@ -118,4 +118,22 @@ class ShipmentModel extends BaseModel
         $extra['status'] = $newStatus;
         return $this->update($id, $extra);
     }
+
+    /** Find a single shipment by ID with city names */
+    public function find(int $id): ?array
+    {
+        $rows = $this->query(
+            "SELECT s.*,
+                    COALESCE(oc.name,'') AS origin_city,
+                    COALESCE(dc.name,'') AS dest_city,
+                    b.name AS branch_name
+             FROM shipments s
+             LEFT JOIN cities oc ON oc.city_id = s.origin_city_id
+             LEFT JOIN cities dc ON dc.city_id = s.destination_city_id
+             LEFT JOIN branches b ON b.branch_id = s.branch_id
+             WHERE s.shipment_id = ? AND s.is_active = 1 LIMIT 1",
+            [$id]
+        );
+        return $rows[0] ?? null;
+    }
 }
