@@ -525,7 +525,22 @@
             document.getElementById('spane-' + key).style.display = '';
         }
 
-        function saveSettings() { showToast('✓ Ayarlar başarıyla kaydedildi.', 'success'); }
+        function saveSettings() {
+            var fields = {};
+            document.querySelectorAll('[data-setting]').forEach(function(el) {
+                fields[el.getAttribute('data-setting')] = el.type === 'checkbox' ? el.checked : el.value;
+            });
+            fetch('api.php?action=settings.save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fields)
+            })
+            .then(r => r.json())
+            .then(function(res) {
+                showToast(res.success ? '✓ Ayarlar başarıyla kaydedildi.' : 'Hata: ' + (res.error || '?'), res.success ? 'success' : 'error');
+            })
+            .catch(function() { showToast('Sunucu hatası!', 'error'); });
+        }
 
         function testSmtp() {
             var email = document.getElementById('testEmail');

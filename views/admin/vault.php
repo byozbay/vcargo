@@ -1,3 +1,22 @@
+<?php
+require_once __DIR__ . "/../../core/autoload.php";
+$base = new BaseModel();
+$days = (int)($_GET["days"] ?? 7);
+$branchId = (int)($_GET["branch"] ?? 0);
+$branchWhere = $branchId ? "AND t.branch_id=$branchId" : "";
+$kpi = ($base->query(
+    "SELECT
+        COALESCE(SUM(CASE WHEN type='IN'  AND is_active=1 THEN amount ELSE 0 END),0) AS total_in,
+        COALESCE(SUM(CASE WHEN type='OUT' AND is_active=1 THEN amount ELSE 0 END),0) AS total_out,
+        COALESCE(SUM(CASE WHEN type='IN'  AND method='CASH' AND is_active=1 THEN amount ELSE 0 END),0) AS cash_in,
+        COALESCE(SUM(CASE WHEN type='OUT' AND category='driver_payment' AND is_active=1 THEN amount ELSE 0 END),0) AS driver_out,
+        COALESCE(SUM(CASE WHEN type='IN'  AND is_active=1 THEN 1 ELSE 0 END),0) AS in_count,
+        COALESCE(SUM(CASE WHEN type='OUT' AND is_active=1 THEN 1 ELSE 0 END),0) AS out_count
+     FROM transactions t
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)",
+    [$days]))[0] ?? [];
+$branches = $base->query("SELECT branch_id, name FROM branches WHERE is_active=1 ORDER BY name");
+?>
 <main class="main-content">
 
     <!-- ── Page Header ── -->

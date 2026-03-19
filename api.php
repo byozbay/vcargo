@@ -612,6 +612,33 @@ try {
             AuditModel::log('accounts.create','account',$newId,null,['name'=>$name,'branch_id'=>$branchId]);
             return ['success'=>true,'account_id'=>$newId];
         })(),
+
+        /**
+         * settings.save — Save system settings (stored in a settings table or flat config)
+         */
+        'settings.save' => (function () use ($input, $userId) {
+            if (empty($input)) throw new \Exception('Ayar verisi gönderilmedi.');
+            $base = new BaseModel();
+            $db   = new Database();
+            $pdo  = $db->connect();
+            $now  = date('Y-m-d H:i:s');
+            $saved = 0;
+            foreach ($input as $key => $value) {
+                $key   = preg_replace('/[^a-z0-9_]/', '', strtolower($key));
+                if (!$key) continue;
+                $value = is_bool($value) ? ($value ? '1' : '0') : (string)$value;
+                // Upsert into settings table
+                $stmt = $pdo->prepare(
+                    "INSERT INTO settings (setting_key, setting_value, updated_by, updated_at)
+                     VALUES (?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by), updated_at=VALUES(updated_at)"
+                );
+                $stmt->execute([$key, $value, $userId, $now]);
+                $saved++;
+            }
+            AuditModel::log('settings.save', 'settings', null, null, ['count' => $saved]);
+            return ['success' => true, 'saved' => $saved];
+        })(),
         default => throw new \Exception("Bilinmeyen işlem: {$action}"),
     };
 
