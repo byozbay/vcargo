@@ -31,21 +31,25 @@ $storageKpi = $base->query(
 
 /* ── Monthly Revenue last 7 months ── */
 $monthlyRevenue = $base->query(
-    "SELECT DATE_FORMAT(t.created_at, '%b') AS ay,
+    "SELECT YEAR(t.created_at) AS yr,
+            MONTH(t.created_at) AS mo,
+            DATE_FORMAT(t.created_at, '%b') AS ay,
             SUM(CASE WHEN t.type='IN' THEN t.amount ELSE 0 END) AS ciro,
             COUNT(DISTINCT t.shipment_id) AS kargo
      FROM transactions t
      WHERE t.created_at >= DATE_SUB(NOW(), INTERVAL 7 MONTH)
        AND t.type = 'IN' AND t.is_active = 1
-     GROUP BY YEAR(t.created_at), MONTH(t.created_at)
-     ORDER BY YEAR(t.created_at), MONTH(t.created_at)"
+     GROUP BY YEAR(t.created_at), MONTH(t.created_at), DATE_FORMAT(t.created_at, '%b')
+     ORDER BY yr, mo"
 );
 $maxRevenue = count($monthlyRevenue) ? max(array_column($monthlyRevenue, 'ciro')) : 1;
 if (!$maxRevenue) $maxRevenue = 1;
 
 /* ── Top Branches ── */
 $topBranches = $base->query(
-    "SELECT b.name, c.name AS city,
+    "SELECT b.branch_id,
+            MIN(b.name) AS name,
+            MIN(c.name) AS city,
             COUNT(s.shipment_id) AS shipments,
             COALESCE(SUM(s.total_fee), 0) AS revenue
      FROM shipments s
@@ -62,7 +66,8 @@ unset($tb);
 
 /* ── Top Bus Companies ── */
 $topCompanies = $base->query(
-    "SELECT bc.name,
+    "SELECT bc.company_id,
+            MIN(bc.name) AS name,
             COUNT(DISTINCT tr.trip_id) AS trips,
             COUNT(s.shipment_id) AS cargo,
             COALESCE(SUM(s.total_fee * tr.commission_rate / 100), 0) AS commission
