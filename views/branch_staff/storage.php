@@ -27,28 +27,28 @@
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Toplam Emanet</div>
-                    <div class="stat-value" style="font-size:1.5rem;">47</div>
+                    <div class="stat-value" style="font-size:1.5rem;" id="kpiTotal">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Aktif kayıt</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Ücretli Süreye Giren</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#e08b00;">12</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#e08b00;" id="kpiPaid">—</div>
                     <div style="font-size:.73rem;color:#e08b00;margin-top:2px;">4 saat üstü</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Bekleyen Bakım Ücret</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#f31260;">₺384</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#f31260;" id="kpiPending">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Tahsil edilmedi</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Bugün Teslim Edilen</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#0e8045;">9</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#0e8045;" id="kpiDelivered">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Emanetten çıktı</div>
                 </div>
             </div>
@@ -104,7 +104,7 @@
             <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                 <div>
                     <div class="section-label">Aktif Emanetler</div>
-                    <div class="section-sub" id="storageCountLabel">47 kayıt</div>
+                    <div class="section-sub" id="storageCountLabel">Yükleniyor...</div>
                 </div>
                 <div class="d-flex gap-2">
                     <span class="status-badge" style="background:#fff8ec;color:#e08b00;font-size:.72rem;">
@@ -140,7 +140,7 @@
 
             <!-- Pagination -->
             <div class="d-flex align-items-center justify-content-between mt-3 flex-wrap gap-2">
-                <div style="font-size:.78rem;color:var(--text-muted);" id="paginationInfo">1-10 / 47 kayıt</div>
+                <div style="font-size:.78rem;color:var(--text-muted);" id="paginationInfo"></div>
                 <div class="d-flex gap-1">
                     <button class="icon-btn-circle" disabled><i class="bi bi-chevron-left"
                             style="font-size:.75rem;"></i></button>
@@ -241,22 +241,42 @@
 </style>
 
 <script>
-    /* ── Mock Veri ── */
+    /* ── Real Data from API ── */
     var now = Date.now();
-    function hoursAgo(h) { return now - h * 3600 * 1000; }
+    var storageData = [];
 
-    var storageData = [
-        { id: 'TRK-240224-010', type: 'kargo', owner: 'Hüseyin Polat', phone: '0534 111 22 33', location: 'A-03', entryTs: hoursAgo(38), freeH: 4, rateH: 2 },
-        { id: 'TRK-240224-011', type: 'kargo', owner: 'Selin Arslan', phone: '0541 222 33 44', location: 'A-05', entryTs: hoursAgo(29), freeH: 4, rateH: 2 },
-        { id: 'TRK-240224-012', type: 'bagaj', owner: 'Kadir Yıldırım', phone: '0555 333 44 55', location: 'B-01', entryTs: hoursAgo(7), freeH: 2, rateH: 3 },
-        { id: 'TRK-240224-013', type: 'kargo', owner: 'Elif Şahin', phone: '0562 444 55 66', location: 'A-07', entryTs: hoursAgo(3), freeH: 4, rateH: 2 },
-        { id: 'TRK-240224-014', type: 'bagaj', owner: 'Berkan Güneş', phone: '0530 555 66 77', location: 'C-02', entryTs: hoursAgo(1), freeH: 2, rateH: 3 },
-        { id: 'TRK-240224-015', type: 'kargo', owner: 'Neslihan Çelik', phone: '0543 666 77 88', location: 'A-09', entryTs: hoursAgo(52), freeH: 4, rateH: 2 },
-        { id: 'TRK-240224-016', type: 'kargo', owner: 'Tarık Doğan', phone: '0531 777 88 99', location: 'B-04', entryTs: hoursAgo(25), freeH: 4, rateH: 2 },
-        { id: 'TRK-240224-017', type: 'bagaj', owner: 'Gizem Aydın', phone: '0556 888 99 00', location: 'C-01', entryTs: hoursAgo(2), freeH: 2, rateH: 3 },
-        { id: 'TRK-240224-018', type: 'kargo', owner: 'Murat Şimşek', phone: '0506 999 00 11', location: 'A-11', entryTs: hoursAgo(11), freeH: 4, rateH: 2 },
-        { id: 'TRK-240224-019', type: 'kargo', owner: 'Didem Kaya', phone: '0552 100 20 30', location: 'A-12', entryTs: hoursAgo(5), freeH: 4, rateH: 2 },
-    ];
+    function loadStorage() {
+        fetch('api.php?action=storage.list', {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+        })
+        .then(r => r.json())
+        .then(function(res) {
+            if (!res.success) { showToast('Hata: '+(res.error||'?'), 'error'); return; }
+            var kpi = res.kpi || {};
+            document.getElementById('kpiTotal').textContent = kpi.total || 0;
+            document.getElementById('kpiPaid').textContent = kpi.paid || 0;
+            document.getElementById('kpiPending').textContent = '₺'+(parseFloat(kpi.pending_fee)||0).toFixed(2);
+            document.getElementById('kpiDelivered').textContent = kpi.today_delivered || 0;
+            now = Date.now();
+            storageData = (res.records || []).map(function(r) {
+                return {
+                    id:         r.reference_code || String(r.storage_id),
+                    storage_id: r.storage_id,
+                    type:       r.type === 'baggage' ? 'bagaj' : 'kargo',
+                    owner:      r.owner_name,
+                    phone:      r.owner_phone,
+                    location:   r.location,
+                    entryTs:    new Date(r.checked_in_at).getTime(),
+                    freeH:      parseFloat(r.free_hours)||4,
+                    rateH:      parseFloat(r.rate_per_h)||2,
+                    urgency:    r.urgency,
+                    fee:        parseFloat(r.fee)||0,
+                };
+            });
+            filterStorage();
+        })
+        .catch(function() { showToast('Bağlantı hatası!', 'error'); });
+    }
 
     /* Her kayıt için hesaplamalar */
     function calcRow(r) {
@@ -309,7 +329,7 @@
                 '<td><span class="status-badge" style="background:#fff8ec;color:#e08b00;font-size:.73rem;">Emanette</span></td>' +
                 '<td>' +
                 '<div class="d-flex gap-1">' +
-                '<button class="icon-btn-circle" title="Teslim Et" onclick="quickDeliver(\'' + r.id + '\')"><i class="bi bi-check2" style="font-size:.8rem;color:#0e8045;"></i></button>' +
+                '<button class="icon-btn-circle" title="Teslim Et" onclick="quickDeliver(' + r.storage_id + ', \'' + r.id + '\')"><i class="bi bi-check2" style="font-size:.8rem;color:#0e8045;"></i></button>' +
                 '<button class="icon-btn-circle" title="Detay"><i class="bi bi-eye" style="font-size:.8rem;"></i></button>' +
                 '</div>' +
                 '</td>' +
@@ -354,9 +374,8 @@
 
     /* ── Zamanları Yenile ── */
     function refreshTimes() {
-        now = Date.now();
-        filterStorage();
-        showToast('Süreler güncellendi.', 'info');
+        loadStorage();
+        showToast('Süreler yenileniyor...', 'info');
     }
 
     /* ── Toast ── */
@@ -370,8 +389,8 @@
     }
 
     /* ── İlk Yükleme ── */
-    filterStorage();
+    loadStorage();
 
     /* ── 60 saniyede bir otomatik yenile ── */
-    setInterval(function () { now = Date.now(); filterStorage(); }, 60000);
+    setInterval(function () { loadStorage(); }, 60000);
 </script>

@@ -27,28 +27,28 @@
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Bugünkü Seferler</div>
-                    <div class="stat-value" style="font-size:1.5rem;">8</div>
+                    <div class="stat-value" style="font-size:1.5rem;" id="kpiTotal">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Toplam planlı</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Aktif / Yolda</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#1b84ff;">3</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#1b84ff;" id="kpiActive">—</div>
                     <div style="font-size:.73rem;color:#1b84ff;margin-top:2px;">Sefer devam ediyor</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Toplam Kargo</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#0e8045;">67</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#0e8045;" id="kpiCargo">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Bu gün sevk edilen</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
                 <div class="card" style="padding:14px 16px;">
                     <div class="card-sm-label">Şoföre Ödenen Net</div>
-                    <div class="stat-value" style="font-size:1.5rem;color:#e08b00;">₺3.650</div>
+                    <div class="stat-value" style="font-size:1.5rem;color:#e08b00;" id="kpiNet">—</div>
                     <div style="font-size:.73rem;color:var(--text-muted);margin-top:2px;">Komisyon düşüldü</div>
                 </div>
             </div>
@@ -84,11 +84,13 @@
                 <div class="col-6 col-md-2">
                     <label class="form-label-sm">Firma</label>
                     <select id="filterCompany" class="form-input" onchange="filterVoyages()">
-                        <option value="">Tümü</option>
-                        <option value="metro">Metro Turizm</option>
-                        <option value="pamukkale">Pamukkale</option>
-                        <option value="uludag">Uludağ Turizm</option>
-                        <option value="kamil">Kamil Koç</option>
+                                                <option value="">Tümü</option>
+                        <option value="3">Kamil Koç</option>
+                        <option value="1">Metro Turizm</option>
+                        <option value="6">Nilüfer Turizm</option>
+                        <option value="2">Pamukkale Turizm</option>
+                        <option value="5">Süha Turizm</option>
+                        <option value="4">Uludağ Turizm</option>
                     </select>
                 </div>
                 <div class="col-6 col-md-2">
@@ -104,7 +106,7 @@
             <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                 <div>
                     <div class="section-label">Sefer Listesi</div>
-                    <div class="section-sub" id="voyageCountLabel">8 sefer</div>
+                    <div class="section-sub" id="voyageCountLabel">Yükleniyor...</div>
                 </div>
             </div>
 
@@ -244,7 +246,7 @@
         var filtered = voyages.filter(function (v) {
             var matchSearch = !search || v.plate.toLowerCase().includes(search) || v.companyName.toLowerCase().includes(search) || v.route.toLowerCase().includes(search);
             var matchStatus = !status || v.status === status;
-            var matchCompany = !company || v.company === company;
+            var matchCompany = !company || String(v.company_id) === String(company);
             return matchSearch && matchStatus && matchCompany;
         });
         renderVoyages(filtered);
@@ -270,5 +272,6 @@
         setTimeout(function () { t.style.opacity = '0'; setTimeout(function () { t.remove(); }, 300); }, 3000);
     }
 
-    renderVoyages(voyages);
+    loadVoyages();
+    document.getElementById("filterDate").addEventListener("change", loadVoyages);
 </script>

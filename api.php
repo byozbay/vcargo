@@ -419,6 +419,109 @@ try {
             AuditModel::log('pricing.save', 'branch', null, null, ['branches_updated' => $updated]);
             return ['success' => true, 'updated' => $updated];
         })(),
+
+        /**
+         * trips.list — List trips for branch with cargo count and financials
+         */
+        'trips.list' => (function () use ($input, $branchId) {
+            $base = new BaseModel();
+            $date = $input['date'] ?? date('Y-m-d');
+            $rows = $base->query(
+                "SELECT t.trip_id, t.plate_no, bc.name AS company_name,
+                        CONCAT(COALESCE(oc.name,'?'),' → ',COALESCE(dc.name,'?')) AS route,
+                        t.driver_name, t.driver_phone,
+                        DATE_FORMAT(t.departure_time,'%H:%i') AS time,
+                        t.commission_rate,
+                        t.total_cargo_fee AS gross,
+                        t.net_payment AS net,
+                        t.status,
+                        COUNT(s.shipment_id) AS cargo_count
+                 FROM trips t
+                 LEFT JOIN bus_companies bc ON bc.company_id = t.company_id
+                 LEFT JOIN cities oc ON oc.city_id = t.origin_city_id
+                 LEFT JOIN cities dc ON dc.city_id = t.destination_city_id
+                 LEFT JOIN shipments s ON s.trip_id = t.trip_id AND s.is_active = 1
+                 WHERE t.branch_id = ? AND DATE(t.departure_time) = ?
+                 GROUP BY t.trip_id, bc.name, oc.name, dc.name
+                 ORDER BY t.departure_time",
+                [$branchId, $date]
+            );
+            /* KPI summary */
+            $kpi = $base->query(
+                "SELECT COUNT(*) AS total,
+                        SUM(status='in_transit') AS active,
+                        SUM(status='completed') AS completed
+                 FROM trips WHERE branch_id=? AND DATE(departure_time)=?",
+                [$branchId, $date]
+            )[0] ?? [];
+            $net = $base->query(
+                "SELECT COALESCE(SUM(amount),0) AS v FROM transactions
+                 WHERE category='driver_payment' AND branch_id=? AND DATE(created_at)=? AND is_active=1",
+                [$branchId, $date]
+            )[0]['v'] ?? 0;
+            $cargoToday = $base->query(
+                "SELECT COUNT(*) AS v FROM shipments s
+                 JOIN trips t ON t.trip_id=s.trip_id
+                 WHERE t.branch_id=? AND DATE(t.departure_time)=? AND s.is_active=1",
+                [$branchId, $date]
+            )[0]['v'] ?? 0;
+            return ['success'=>true,'trips'=>$rows,'kpi'=>[
+                'total'=>(int)($kpi['total']??0),
+                'active'=>(int)($kpi['active']??0),
+                'cargo_today'=>(int)$cargoToday,
+                'net_paid'=>(float)$net,
+            ]];
+        })(),
+
+        /**
+         * storage.list — Active storage records for branch
+         */
+        'storage.list' => (function () use ($input, $branchId) {
+            $base = new BaseModel();
+            $branchRow = $base->query(
+                "SELECT free_storage_hours, storage_hourly_rate, baggage_hourly_rate
+                 FROM branches WHERE branch_id=? LIMIT 1", [$branchId]
+            )[0] ?? ['free_storage_hours'=>4,'storage_hourly_rate'=>2,'baggage_hourly_rate'=>3];
+            $rows = $base->query(
+                "SELECT sr.storage_id, sr.reference_code, sr.type,
+                        sr.owner_name, sr.owner_phone, sr.location,
+                        sr.checked_in_at,
+                        TIMESTAMPDIFF(MINUTE, sr.checked_in_at, NOW()) AS minutes_elapsed
+                 FROM storage_records sr
+                 WHERE sr.branch_id=? AND sr.status='active' AND sr.is_active=1
+                 ORDER BY sr.checked_in_at",
+                [$branchId]
+            );
+            $freeH  = (int)$branchRow['free_storage_hours'];
+            $rateH  = (float)$branchRow['storage_hourly_rate'];
+            $bagH   = (float)$branchRow['baggage_hourly_rate'];
+            /* Enrich with computed fee */
+            foreach ($rows as &$r) {
+                $totalH = $r['minutes_elapsed'] / 60;
+                $rate   = $r['type'] === 'baggage' ? $bagH : $rateH;
+                $paidH  = max(0, $totalH - $freeH);
+                $r['total_hours'] = round($totalH, 2);
+                $r['paid_hours']  = round($paidH, 2);
+                $r['fee']         = round($paidH * $rate, 2);
+                $r['urgency']     = $totalH >= 24 ? 'critical' : ($paidH > 0 ? 'paid' : 'free');
+                $r['free_hours']  = $freeH;
+                $r['rate_per_h']  = $rate;
+            }
+            unset($r);
+
+            /* KPI */
+            $total   = count($rows);
+            $paid    = count(array_filter($rows, fn($r)=>$r['urgency']!=='free'));
+            $pending = array_sum(array_column($rows, 'fee'));
+            $today   = $base->query(
+                "SELECT COUNT(*) AS v FROM storage_records
+                 WHERE branch_id=? AND status='delivered' AND DATE(checked_out_at)=CURDATE() AND is_active=1",
+                [$branchId]
+            )[0]['v'] ?? 0;
+            return ['success'=>true,'records'=>$rows,'kpi'=>[
+                'total'=>$total,'paid'=>$paid,'pending_fee'=>round($pending,2),'today_delivered'=>(int)$today
+            ]];
+        })(),
         default => throw new \Exception("Bilinmeyen işlem: {$action}"),
     };
 
