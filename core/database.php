@@ -1,22 +1,29 @@
 <?php
+declare(strict_types=1);
 
+/**
+ * Database — PDO singleton with utf8mb4 charset.
+ */
 class Database
 {
-    private $host = "localhost";
-    private $username = "root";
-    private $password = "mysql";
-    private $dbname = "vcargo";
-    private $conn;
+    private static ?PDO $instance = null;
 
-    public function connect()
+    private string $host     = 'localhost';
+    private string $username = 'root';
+    private string $password = 'mysql';
+    private string $dbname   = 'vcargo';
+    private string $charset  = 'utf8mb4';
+
+    public function connect(): PDO
     {
-        $this->conn = null;
-        try {
-            $this->conn = new PDO("mysql:host=" . $this->host . ";dbname=" . $this->dbname, $this->username, $this->password);
-            $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        } catch (PDOException $exception) {
-            echo "Connection error: " . $exception->getMessage();
+        if (self::$instance === null) {
+            $dsn = "mysql:host={$this->host};dbname={$this->dbname};charset={$this->charset}";
+            self::$instance = new PDO($dsn, $this->username, $this->password, [
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES   => false,
+            ]);
         }
-        return $this->conn;
+        return self::$instance;
     }
 }
