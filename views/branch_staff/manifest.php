@@ -3,34 +3,70 @@
  * Sefer bazlı kargo listesini çıktıya hazırlar.
  * URL örneği: ?page=manifest&trip_id=3
  */
+require_once __DIR__ . '/../../core/autoload.php';
 $tripId = intval($_GET['trip_id'] ?? 0);
 
-/* ── Mock sefer verisi ── */
-$trip = [
-    'id' => 3,
-    'plate' => '06 KA 777',
-    'company' => 'Uludağ Turizm',
-    'driver' => 'Hasan Yıldız',
-    'phone' => '0542 000 11 22',
-    'route' => 'İstanbul → Bursa',
-    'departure' => '24.02.2026 10:00',
-    'comm_rate' => 12,
-];
+/* ── Real DB query ── */
+$base = new BaseModel();
 
-/* ── Mock kargo listesi ── */
-$shipments = [
-    ['no' => 'TRK-240224-010', 'sender' => 'Ahmet Yılmaz', 'receiver' => 'Murat Demir', 'dest' => 'Bursa', 'type' => 'Koli', 'qty' => 1, 'weight' => 2.0, 'price' => 65.00, 'payment' => 'Gönderici Öder'],
-    ['no' => 'TRK-240224-011', 'sender' => 'Fatma Kaya', 'receiver' => 'Selin Arslan', 'dest' => 'Bursa', 'type' => 'Koli', 'qty' => 2, 'weight' => 5.5, 'price' => 90.00, 'payment' => 'Alıcı Öder (C.O.D)'],
-    ['no' => 'TRK-240224-012', 'sender' => 'Ali Öztürk', 'receiver' => 'Tarık Doğan', 'dest' => 'Bursa', 'type' => 'Kırılgan', 'qty' => 1, 'weight' => 1.2, 'price' => 55.00, 'payment' => 'Cari'],
-    ['no' => 'TRK-240224-013', 'sender' => 'Elif Şahin', 'receiver' => 'Neslihan Çelik', 'dest' => 'Bursa', 'type' => 'Koli', 'qty' => 3, 'weight' => 8.0, 'price' => 110.00, 'payment' => 'Gönderici Öder'],
-    ['no' => 'TRK-240224-014', 'sender' => 'ABC Lojistik', 'receiver' => 'Berkan Güneş', 'dest' => 'Bursa', 'type' => 'Koli', 'qty' => 1, 'weight' => 3.3, 'price' => 75.00, 'payment' => 'Cari'],
-];
+$tripRow = $tripId > 0 ? $base->query(
+    "SELECT t.trip_id AS id, t.plate_no AS plate, bc.name AS company,
+            t.driver_name AS driver, t.driver_phone AS phone,
+            CONCAT(COALESCE(oc.name,'—'), ' → ', COALESCE(dc.name,'—')) AS route,
+            DATE_FORMAT(t.departure_time, '%d.%m.%Y %H:%i') AS departure,
+            t.commission_rate AS comm_rate,
+            t.total_cargo_fee, t.net_payment, t.branch_id
+     FROM trips t
+     LEFT JOIN bus_companies bc ON bc.company_id = t.company_id
+     LEFT JOIN cities oc ON oc.city_id = t.origin_city_id
+     LEFT JOIN cities dc ON dc.city_id = t.destination_city_id
+     WHERE t.trip_id = ? AND t.is_active = 1
+     LIMIT 1",
+    [$tripId]
+) : [];
 
-$gross = array_sum(array_column($shipments, 'price'));
-$commission = $gross * $trip['comm_rate'] / 100;
-$net = $gross - $commission;
-$totalQty = array_sum(array_column($shipments, 'qty'));
-$totalKg = array_sum(array_column($shipments, 'weight'));
+$trip = $tripRow[0] ?? null;
+if (!$trip) {
+    $noTrip = true;
+    $trip = ['id'=>0,'plate'=>'—','company'=>'—','driver'=>'—','phone'=>'—',
+             'route'=>'—','departure'=>'—','comm_rate'=>0,'total_cargo_fee'=>0,'net_payment'=>0,'branch_id'=>0];
+    $shipments = [];
+} else {
+    $noTrip = false;
+    $shipments = $base->query(
+        "SELECT s.tracking_no AS no,
+                s.sender_name AS sender,
+                s.receiver_name AS receiver,
+                COALESCE(c.name,'—') AS dest,
+                COALESCE(s.content_description, 'Koli') AS type,
+                s.piece_count AS qty,
+                COALESCE(s.weight, 0) AS weight,
+                s.total_fee AS price,
+                CASE s.payment_type
+                    WHEN 'SENDER_PAYS'   THEN 'Gönderici Öder'
+                    WHEN 'RECEIVER_PAYS' THEN 'Alıcı Öder (C.O.D)'
+                    WHEN 'ACCOUNT'       THEN 'Cari'
+                    ELSE s.payment_type
+                END AS payment
+         FROM shipments s
+         LEFT JOIN cities c ON c.city_id = s.destination_city_id
+         WHERE s.trip_id = ? AND s.is_active = 1
+         ORDER BY s.shipment_id",
+        [$tripId]
+    );
+}
+
+$gross      = array_sum(array_column($shipments, 'price'));
+$commission = $gross * ($trip['comm_rate'] / 100);
+$net        = $gross - $commission;
+$totalQty   = array_sum(array_column($shipments, 'qty'));
+$totalKg    = array_sum(array_column($shipments, 'weight'));
+
+$branchName = 'vCargo Şubesi';
+if (!$noTrip && !empty($trip['branch_id'])) {
+    $br = $base->query("SELECT name FROM branches WHERE branch_id = ? LIMIT 1", [$trip['branch_id']]);
+    $branchName = $br[0]['name'] ?? $branchName;
+}
 ?>
 <main class="main-content">
 

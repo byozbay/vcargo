@@ -1,47 +1,127 @@
 <?php
-// Mock summary data
-$reportData = [
-    'total_revenue' => 847320,
-    'total_shipments' => 6248,
-    'total_storage' => 1140,
-    'total_companies' => 8,
-    'avg_shipment_val' => 135.6,
-    'cod_collected' => 128400,
-];
+/* ── Reports — Real DB Queries ── */
+require_once __DIR__ . '/../../core/autoload.php';
+$base = new BaseModel();
+$days = intval($_GET['range'] ?? 90);
 
-$monthlyRevenue = [
-    ['ay' => 'Ağu', 'ciro' => 58200, 'kargo' => 412],
-    ['ay' => 'Eyl', 'ciro' => 63400, 'kargo' => 448],
-    ['ay' => 'Eki', 'ciro' => 71800, 'kargo' => 512],
-    ['ay' => 'Kas', 'ciro' => 68900, 'kargo' => 496],
-    ['ay' => 'Ara', 'ciro' => 82300, 'kargo' => 584],
-    ['ay' => 'Oca', 'ciro' => 74100, 'kargo' => 538],
-    ['ay' => 'Şub', 'ciro' => 91200, 'kargo' => 667],
-];
+/* ── KPI Totals ── */
+$kpi = $base->query(
+    "SELECT
+       COALESCE(SUM(CASE WHEN t.type='IN' THEN t.amount ELSE 0 END), 0)                AS total_revenue,
+       COALESCE(SUM(CASE WHEN t.category='storage_fee' THEN t.amount ELSE 0 END), 0)   AS total_storage_rev,
+       COALESCE(SUM(CASE WHEN t.category='cargo_fee_cod' THEN t.amount ELSE 0 END), 0) AS cod_collected
+     FROM transactions t
+     WHERE t.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND t.is_active = 1",
+    [$days]
+)[0] ?? [];
 
-$topBranches = [
-    ['name' => 'İstanbul - Esenler', 'city' => 'İstanbul', 'shipments' => 1842, 'revenue' => 128400, 'pct' => 100],
-    ['name' => 'Ankara - AŞTİ', 'city' => 'Ankara', 'shipments' => 1418, 'revenue' => 98700, 'pct' => 77],
-    ['name' => 'İzmir - UAŞM', 'city' => 'İzmir', 'shipments' => 978, 'revenue' => 68200, 'pct' => 53],
-    ['name' => 'Bursa Otogarı', 'city' => 'Bursa', 'shipments' => 714, 'revenue' => 49800, 'pct' => 38],
-    ['name' => 'Antalya Otogarı', 'city' => 'Antalya', 'shipments' => 561, 'revenue' => 39100, 'pct' => 30],
-];
+$shipKpi = $base->query(
+    "SELECT COUNT(*) AS total_shipments, AVG(total_fee) AS avg_shipment_val
+     FROM shipments
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND is_active = 1",
+    [$days]
+)[0] ?? [];
 
-$topCompanies = [
-    ['name' => 'Metro Turizm', 'trips' => 184, 'cargo' => 1840, 'commission' => 13800],
-    ['name' => 'Pamukkale Turizm', 'trips' => 141, 'cargo' => 1290, 'commission' => 8385],
-    ['name' => 'Kamil Koç', 'trips' => 118, 'cargo' => 1060, 'commission' => 7420],
-    ['name' => 'Uludağ Turizm', 'trips' => 96, 'cargo' => 860, 'commission' => 5160],
-    ['name' => 'Varan Turizm', 'trips' => 74, 'cargo' => 590, 'commission' => 4720],
-];
+$storageKpi = $base->query(
+    "SELECT COUNT(*) AS total_storage
+     FROM storage_records
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND is_active = 1",
+    [$days]
+)[0] ?? [];
 
-$paymentBreakdown = [
-    ['type' => 'Nakit', 'pct' => 54, 'amount' => 457753, 'color' => '#1b84ff'],
-    ['type' => 'Kredi Kartı', 'pct' => 31, 'amount' => 262669, 'color' => '#0e8045'],
-    ['type' => 'Cari Hesap', 'pct' => 15, 'amount' => 126898, 'color' => '#e08b00'],
-];
+/* ── Monthly Revenue last 7 months ── */
+$monthlyRevenue = $base->query(
+    "SELECT DATE_FORMAT(t.created_at, '%b') AS ay,
+            SUM(CASE WHEN t.type='IN' THEN t.amount ELSE 0 END) AS ciro,
+            COUNT(DISTINCT t.shipment_id) AS kargo
+     FROM transactions t
+     WHERE t.created_at >= DATE_SUB(NOW(), INTERVAL 7 MONTH)
+       AND t.type = 'IN' AND t.is_active = 1
+     GROUP BY YEAR(t.created_at), MONTH(t.created_at)
+     ORDER BY YEAR(t.created_at), MONTH(t.created_at)"
+);
+$maxRevenue = count($monthlyRevenue) ? max(array_column($monthlyRevenue, 'ciro')) : 1;
+if (!$maxRevenue) $maxRevenue = 1;
 
-$maxRevenue = max(array_column($monthlyRevenue, 'ciro'));
+/* ── Top Branches ── */
+$topBranches = $base->query(
+    "SELECT b.name, c.name AS city,
+            COUNT(s.shipment_id) AS shipments,
+            COALESCE(SUM(s.total_fee), 0) AS revenue
+     FROM shipments s
+     JOIN branches b ON b.branch_id = s.branch_id
+     LEFT JOIN cities c ON c.city_id = b.city_id
+     WHERE s.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND s.is_active = 1
+     GROUP BY b.branch_id ORDER BY revenue DESC LIMIT 5",
+    [$days]
+);
+$maxBranch = count($topBranches) ? max(array_column($topBranches, 'revenue')) : 1;
+if (!$maxBranch) $maxBranch = 1;
+foreach ($topBranches as &$tb) { $tb['pct'] = round($tb['revenue'] / $maxBranch * 100); }
+unset($tb);
+
+/* ── Top Bus Companies ── */
+$topCompanies = $base->query(
+    "SELECT bc.name,
+            COUNT(DISTINCT tr.trip_id) AS trips,
+            COUNT(s.shipment_id) AS cargo,
+            COALESCE(SUM(s.total_fee * tr.commission_rate / 100), 0) AS commission
+     FROM trips tr
+     JOIN bus_companies bc ON bc.company_id = tr.company_id
+     LEFT JOIN shipments s ON s.trip_id = tr.trip_id AND s.is_active = 1
+     WHERE tr.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+     GROUP BY bc.company_id ORDER BY commission DESC LIMIT 5",
+    [$days]
+);
+$maxTrips = count($topCompanies) ? max(array_column($topCompanies, 'trips')) : 1;
+if (!$maxTrips) $maxTrips = 1;
+
+/* ── Payment Method Breakdown ── */
+$payRows = $base->query(
+    "SELECT method, COUNT(*) AS cnt, SUM(amount) AS amount
+     FROM transactions
+     WHERE type='IN' AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND is_active=1
+     GROUP BY method",
+    [$days]
+);
+$totalPay = array_sum(array_column($payRows, 'amount')) ?: 1;
+$mColors = ['CASH'=>'#1b84ff','CARD'=>'#0e8045','ACCOUNT'=>'#e08b00'];
+$mLabels = ['CASH'=>'Nakit','CARD'=>'Kredi Kartı','ACCOUNT'=>'Cari Hesap'];
+$paymentBreakdown = array_map(fn($p) => [
+    'type'  => $mLabels[$p['method']] ?? $p['method'],
+    'pct'   => round($p['amount'] / $totalPay * 100),
+    'amount'=> (float)$p['amount'],
+    'cnt'   => (int)$p['cnt'],
+    'color' => $mColors[$p['method']] ?? '#64748b',
+], $payRows);
+
+/* ── Cargo Status ── */
+$cargoStatus = $base->query(
+    "SELECT status, COUNT(*) AS cnt FROM shipments
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND is_active=1 GROUP BY status",
+    [$days]
+);
+$statusMap = [];
+foreach ($cargoStatus as $cs) { $statusMap[$cs['status']] = (int)$cs['cnt']; }
+$delivered  = $statusMap['delivered'] ?? 0;
+$inStorage  = ($statusMap['in_storage'] ?? 0) + ($statusMap['at_branch'] ?? 0);
+$cancelled  = ($statusMap['cancelled'] ?? 0) + ($statusMap['returned'] ?? 0);
+
+$totalRevenue    = (float)($kpi['total_revenue']    ?? 0);
+$codCollected    = (float)($kpi['cod_collected']     ?? 0);
+$totalStorageRev = (float)($kpi['total_storage_rev'] ?? 0);
+$totalShipments  = (int)($shipKpi['total_shipments'] ?? 0);
+$avgVal          = (float)($shipKpi['avg_shipment_val'] ?? 0);
+$totalStorage    = (int)($storageKpi['total_storage'] ?? 0);
+
+/* Driver/bus payments OUT */
+$busPaid = $base->query(
+    "SELECT COALESCE(SUM(amount),0) AS v FROM transactions
+     WHERE type='OUT' AND category='driver_payment'
+       AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND is_active=1",
+    [$days]
+)[0]['v'] ?? 0;
+$netKasa = $totalRevenue - (float)$busPaid;
 ?>
 <main class="main-content">
 
@@ -62,12 +142,12 @@ $maxRevenue = max(array_column($monthlyRevenue, 'ciro'));
                 <i class="bi bi-calendar3" style="color:var(--text-muted);"></i>
                 <select class="form-input" id="reportRange"
                     style="border:none;background:transparent;padding:0;font-size:.78rem;font-weight:600;"
-                    onchange="updateRange()">
-                    <option value="7">Son 7 Gün</option>
-                    <option value="30">Son 30 Gün</option>
-                    <option selected value="90">Son 3 Ay</option>
-                    <option value="180">Son 6 Ay</option>
-                    <option value="365">Bu Yıl</option>
+                    id="reportRange" onchange="updateRange()">
+                    <option value="7"<?= $days==7?" selected":""?>>Son 7 Gün</option>
+                    <option value="30"<?= $days==30?" selected":""?>>Son 30 Gün</option>
+                    <option value="90"<?= $days==90?" selected":""?>>Son 3 Ay</option>
+                    <option value="180"<?= $days==180?" selected":""?>>Son 6 Ay</option>
+                    <option value="365"<?= $days==365?" selected":""?>>Bu Yıl</option>
                 </select>
             </div>
             <button class="btn-outline-secondary-sm d-flex align-items-center gap-1" onclick="exportReport()">
@@ -386,13 +466,13 @@ $maxRevenue = max(array_column($monthlyRevenue, 'ciro'));
                                         </span>
                                     </td>
                                     <td style="font-size:.82rem;">
-                                        <?= number_format(round($reportData['total_shipments'] * $pb['pct'] / 100)) ?>
+                                        <?= number_format($pb['cnt']) ?>
                                     </td>
                                     <td style="font-size:.82rem;font-weight:700;">₺
                                         <?= number_format($pb['amount']) ?>
                                     </td>
                                     <td style="font-size:.82rem;">₺
-                                        <?= number_format($pb['amount'] / max(1, round($reportData['total_shipments'] * $pb['pct'] / 100)), 1) ?>
+                                        <?= number_format($pb['amount'] / max(1, $pb['cnt']), 1) ?>
                                     </td>
                                     <td>
                                         <div class="d-flex align-items-center gap-2">
@@ -517,7 +597,7 @@ $maxRevenue = max(array_column($monthlyRevenue, 'ciro'));
         }
         function updateRange() {
             var v = document.getElementById('reportRange').value;
-            showToast('Rapor güncelleniyor: Son ' + v + ' gün...', 'info');
+            window.location.href = '?page=reports&range=' + v;
         }
         function exportReport() { showToast('Rapor dışa aktarılıyor...', 'info'); }
         function showToast(msg, type) {
