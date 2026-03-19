@@ -94,13 +94,18 @@ class TransactionModel extends BaseModel
     {
         $date   = $date ?: date('Y-m-d');
         $sql    = "SELECT
-                       COALESCE(SUM(CASE WHEN type='IN' AND method='CASH' THEN amount ELSE 0 END), 0) AS cash_in,
-                       COALESCE(SUM(CASE WHEN type='IN' AND method='CARD' THEN amount ELSE 0 END), 0) AS card_in,
-                       COALESCE(SUM(CASE WHEN type='OUT' THEN amount ELSE 0 END), 0) AS total_out,
-                       COALESCE(SUM(CASE WHEN type='IN' THEN amount ELSE 0 END), 0) AS total_in,
-                       COUNT(*) AS tx_count
-                   FROM vault_transactions
-                   WHERE branch_id = ? AND DATE(created_at) = ?";
+                       COALESCE(SUM(CASE WHEN vt.type='IN' AND vt.method='CASH' THEN vt.amount ELSE 0 END), 0) AS cash_in,
+                       COALESCE(SUM(CASE WHEN vt.type='IN' AND vt.method='CARD' THEN vt.amount ELSE 0 END), 0) AS card_in,
+                       COALESCE(SUM(CASE WHEN vt.type='OUT' THEN vt.amount ELSE 0 END), 0) AS total_out,
+                       COALESCE(SUM(CASE WHEN vt.type='IN'  THEN vt.amount ELSE 0 END), 0) AS total_in,
+                       COALESCE(SUM(CASE WHEN vt.type='OUT' AND t.category='driver_payment' THEN vt.amount ELSE 0 END), 0) AS driver_out,
+                       COALESCE(SUM(CASE WHEN vt.type='OUT' AND (t.category IS NULL OR t.category!='driver_payment') THEN vt.amount ELSE 0 END), 0) AS expense_out,
+                       COUNT(*) AS tx_count,
+                       COALESCE(SUM(CASE WHEN vt.type='IN'  THEN 1 ELSE 0 END), 0) AS in_count,
+                       COALESCE(SUM(CASE WHEN vt.type='OUT' THEN 1 ELSE 0 END), 0) AS out_count
+                   FROM vault_transactions vt
+                   LEFT JOIN transactions t ON vt.transaction_id = t.transaction_id
+                   WHERE vt.branch_id = ? AND DATE(vt.created_at) = ?";
         $row = $this->query($sql, [$branchId, $date]);
         return $row[0] ?? [];
     }

@@ -366,6 +366,59 @@ try {
                 return ['success' => true, 'shipment_id' => $shipmentId];
             } catch (\Exception $e) { $pdo->rollBack(); throw $e; }
         })(),
+
+        /**
+         * vault.close — Daily vault closing.
+         * Records counted cash vs expected, logs a close event.
+         */
+        'vault.close' => (function () use ($input, $branchId, $userId) {
+            $dbh = new Database();
+            $pdo = $dbh->connect();
+            $date        = $input['date'] ?? date('Y-m-d');
+            $countedCash = (float) ($input['counted_cash'] ?? 0);
+            $note        = $input['note'] ?? '';
+
+            // Get expected cash
+            $tm   = new TransactionModel();
+            $summ = $tm->getDailySummary($branchId, $date);
+            $cashIn  = (float) ($summ['cash_in']  ?? 0);
+            $totalOut = (float) ($summ['total_out'] ?? 0);
+
+            $diff = $countedCash - ($cashIn - $totalOut);
+
+            AuditModel::log('vault.close', 'branch', $branchId, null, [
+                'date' => $date, 'counted_cash' => $countedCash,
+                'expected' => round($cashIn - $totalOut, 2),
+                'diff' => round($diff, 2),
+                'note' => $note,
+            ]);
+            return ['success' => true, 'counted_cash' => $countedCash, 'diff' => round($diff, 2)];
+        })(),
+
+        /**
+         * pricing.save — Save branch storage rates.
+         * Updates free_storage_hours and storage_hourly_rate per branch.
+         */
+        'pricing.save' => (function () use ($input, $userId) {
+            if ($_SESSION['user_role'] ?? '' !== 'admin') {
+                throw new \Exception('Yetkisiz.');
+            }
+            $bm = new BranchModel();
+            $updated = 0;
+            $branches = $input['branches'] ?? [];
+            foreach ($branches as $bid => $vals) {
+                $bid = (int) $bid;
+                if ($bid <= 0) continue;
+                $bm->update($bid, [
+                    'free_storage_hours'  => (int)   ($vals['free_hours']    ?? 4),
+                    'storage_hourly_rate' => (float) ($vals['storage_rate']  ?? 2.00),
+                    'baggage_hourly_rate' => (float) ($vals['baggage_rate']  ?? 3.00),
+                ]);
+                $updated++;
+            }
+            AuditModel::log('pricing.save', 'branch', null, null, ['branches_updated' => $updated]);
+            return ['success' => true, 'updated' => $updated];
+        })(),
         default => throw new \Exception("Bilinmeyen işlem: {$action}"),
     };
 

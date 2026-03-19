@@ -1,14 +1,15 @@
 <?php
-// Mock pricing data
-$regions = [
-    ['id' => 1, 'name' => 'Marmara', 'cargo_base' => 45, 'cargo_per_kg' => 3.50, 'storage_per_h' => 6.00, 'storage_free_h' => 2, 'cod_fee' => 15, 'courier_fee' => 30],
-    ['id' => 2, 'name' => 'İç Anadolu', 'cargo_base' => 40, 'cargo_per_kg' => 3.00, 'storage_per_h' => 5.00, 'storage_free_h' => 2, 'cod_fee' => 12, 'courier_fee' => 25],
-    ['id' => 3, 'name' => 'Ege', 'cargo_base' => 42, 'cargo_per_kg' => 3.20, 'storage_per_h' => 5.50, 'storage_free_h' => 2, 'cod_fee' => 12, 'courier_fee' => 28],
-    ['id' => 4, 'name' => 'Akdeniz', 'cargo_base' => 43, 'cargo_per_kg' => 3.30, 'storage_per_h' => 5.00, 'storage_free_h' => 3, 'cod_fee' => 12, 'courier_fee' => 28],
-    ['id' => 5, 'name' => 'Karadeniz', 'cargo_base' => 41, 'cargo_per_kg' => 3.10, 'storage_per_h' => 4.50, 'storage_free_h' => 2, 'cod_fee' => 10, 'courier_fee' => 22],
-    ['id' => 6, 'name' => 'Doğu Anadolu', 'cargo_base' => 38, 'cargo_per_kg' => 2.80, 'storage_per_h' => 4.00, 'storage_free_h' => 3, 'cod_fee' => 10, 'courier_fee' => 20],
-    ['id' => 7, 'name' => 'G.D. Anadolu', 'cargo_base' => 39, 'cargo_per_kg' => 2.90, 'storage_per_h' => 4.00, 'storage_free_h' => 3, 'cod_fee' => 10, 'courier_fee' => 20],
-];
+/* ── Pricing — Real DB Data ── */
+require_once __DIR__ . '/../../core/autoload.php';
+$base = new BaseModel();
+// Load regions for cargo pricing tab
+$regions = $base->query("SELECT r.region_id AS id, r.name, 40.00 AS cargo_base, 3.00 AS cargo_per_kg FROM regions r ORDER BY r.name");
+// Load branches for storage pricing
+$branches = $base->query(
+    "SELECT b.branch_id, b.name, c.name AS city_name, b.free_storage_hours, b.storage_hourly_rate, b.baggage_hourly_rate
+     FROM branches b LEFT JOIN cities c ON b.city_id = c.city_id
+     WHERE b.is_active = 1 ORDER BY b.name"
+);
 ?>
 <main class="main-content">
 
@@ -166,35 +167,45 @@ $regions = [
                     <table class="orders-table">
                         <thead>
                             <tr>
-                                <th>Bölge</th>
+                                <th>Şube</th>
                                 <th>Saatlik Ücret (₺)</th>
                                 <th>Ücretsiz Süre (saat)</th>
-                                <th>Max. Süre (gün)</th>
+                                <th>Bagaj Ücret (₺/saat)</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($regions as $r): ?>
+                            <?php foreach ($branches as $b): ?>
                                 <tr>
                                     <td style="font-size:.83rem;font-weight:600;">
-                                        <?= $r['name'] ?>
+                                        <?= htmlspecialchars($b['name']) ?>
+                                        <div style="font-size:.72rem;color:var(--text-muted);"><?= htmlspecialchars($b['city_name'] ?? '') ?></div>
                                     </td>
-                                    <td style="width:200px;">
+                                    <td style="width:180px;">
                                         <div style="position:relative;">
-                                            <span
-                                                style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:.8rem;color:var(--text-muted);">₺</span>
+                                            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:.8rem;color:var(--text-muted);">₺</span>
                                             <input type="number" class="form-input price-field"
-                                                data-original="<?= $r['storage_per_h'] ?>"
-                                                value="<?= $r['storage_per_h'] ?>" step="0.50" min="0"
-                                                style="padding-left:24px;" oninput="markChanged(this)">
+                                                data-branch="<?= $b['branch_id'] ?>" data-field="storage_rate"
+                                                data-original="<?= $b['storage_hourly_rate'] ?>"
+                                                value="<?= $b['storage_hourly_rate'] ?>"
+                                                step="0.50" min="0" style="padding-left:24px;" oninput="markChanged(this)">
                                         </div>
                                     </td>
-                                    <td style="width:200px;">
+                                    <td style="width:180px;">
                                         <input type="number" class="form-input price-field"
-                                            data-original="<?= $r['storage_free_h'] ?>" value="<?= $r['storage_free_h'] ?>"
+                                            data-branch="<?= $b['branch_id'] ?>" data-field="free_hours"
+                                            data-original="<?= $b['free_storage_hours'] ?>"
+                                            value="<?= $b['free_storage_hours'] ?>"
                                             step="1" min="0" max="24" oninput="markChanged(this)">
                                     </td>
-                                    <td style="width:200px;">
-                                        <input type="number" class="form-input" value="30" step="1" min="1">
+                                    <td style="width:180px;">
+                                        <div style="position:relative;">
+                                            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:.8rem;color:var(--text-muted);">₺</span>
+                                            <input type="number" class="form-input price-field"
+                                                data-branch="<?= $b['branch_id'] ?>" data-field="baggage_rate"
+                                                data-original="<?= $b['baggage_hourly_rate'] ?>"
+                                                value="<?= $b['baggage_hourly_rate'] ?>"
+                                                step="0.50" min="0" style="padding-left:24px;" oninput="markChanged(this)">
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -392,14 +403,37 @@ $regions = [
         function saveAllPrices() {
             var count = changedCount;
             if (count === 0) { showToast('Kaydedilecek değişiklik yok.', 'info'); return; }
-            document.querySelectorAll('.price-field').forEach(function (i) {
-                i.dataset.original = i.value;
-                i.style.borderColor = '';
-                i.style.background = '';
+
+            // Collect branch storage rates from data-branch attributes
+            var branchData = {};
+            document.querySelectorAll('.price-field[data-branch]').forEach(function (inp) {
+                var bid   = inp.dataset.branch;
+                var field = inp.dataset.field;
+                if (!branchData[bid]) branchData[bid] = {};
+                branchData[bid][field] = parseFloat(inp.value);
             });
-            changedCount = 0;
-            document.getElementById('changesBar').style.display = 'none';
-            showToast('✓ ' + count + ' fiyat güncellendi.', 'success');
+
+            fetch('api.php?action=pricing.save', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ branches: branchData })
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    document.querySelectorAll('.price-field').forEach(function (i) {
+                        i.dataset.original = i.value;
+                        i.style.borderColor = '';
+                        i.style.background  = '';
+                    });
+                    changedCount = 0;
+                    document.getElementById('changesBar').style.display = 'none';
+                    showToast('✓ ' + count + ' fiyat güncellendi (' + (res.updated||0) + ' şube).', 'success');
+                } else {
+                    showToast('Hata: ' + (res.error || 'Bilinmeyen'), 'error');
+                }
+            })
+            .catch(() => showToast('Sunucu hatası!', 'error'));
         }
 
         function resetAllPrices() {
